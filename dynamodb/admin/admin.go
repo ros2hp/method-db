@@ -17,10 +17,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ros2hp/method-db"
 	"github.com/ros2hp/method-db/dynamodb/stats"
 	"github.com/ros2hp/method-db/log"
 	"github.com/ros2hp/method-db/tbl"
+	"github.com/ros2hp/method-db/tx"
 	"github.com/ros2hp/method-db/uuid"
 )
 
