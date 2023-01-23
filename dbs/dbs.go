@@ -1,5 +1,7 @@
 package dbs
 
+// comment
+
 type Mutation interface {
 	GetStatements() []Statement
 }
