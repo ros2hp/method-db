@@ -1,2 +1,2 @@
-# method-db
-Use methods to define queries and mutations utilising concurrent processing for SQL and NoSQL 
+# What is method-db?
+Out of the GoGraph project (https://github.com/ros2hp/gograph) where I was forced to deal with many different database boilerplate for each database, a sub-project arose, whose raison d'etre was to replace SQL and NoSQL database boilerplate with a more readable, more concise, more productive, method based approach that adds value to database operations, like recoverable queries and asynchronous non-blocking database reads, facilitating higher throughput with zero code effort. I call it MethodDB-4-Go, or MethodDB for short, and this paper, which exists in three parts, will hopefully justify its existence using some real world examples."
