@@ -4,7 +4,7 @@ The purpose of **Method-db-4-Go**, or **Method-db** for short, is to provide Go 
 
 Currently __Method-db__ supports AWS's __Dynamodb__ and any database that supports the __database/SQL__ package of Go's standard library. The next database to be added will be Google's __Spanner__, followed by Postgres's own driver.
 
-**Method-db** uses a methods based approach to defining queries and data manipulations and when chained together exudes an almost SQL like readability. Some of the methods are simple setters of an struct field, while other methods orchestrate groutines and channels to enable non-blocking database reads.
+**Method-db** uses a methods based approach to defining queries and data manipulations and when chained together exudes an almost SQL like readability. Some of the methods are simple setters of a struct field, while other methods orchestrate groutines and channels to enable non-blocking database reads.
 
 Some simple code examples...
 
@@ -89,6 +89,7 @@ A MySQL query:
           . . .
         }
 . . .
+```
 
 ##Advanced Query Methods
 
