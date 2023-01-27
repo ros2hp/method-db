@@ -4,7 +4,7 @@ The purpose of **Method-db-4-Go**, or **Method-db** for short, is to provide Go 
 
 Currently __Method-db__ supports AWS's __Dynamodb__ and any database that supports the __database/SQL__ package of Go's standard library. The next database to be added will be Google's __Spanner__, followed by Postgres's own driver.
 
-**Method-db** uses a methods based approach to defining querier and data manipulations and when chained together exudes an almost SQL like readability. Some of the methods are simple setters of an underlying variable, while other methods may orchestrate groutines and channels to implement asychronous communicaiton with the database.
+**Method-db** uses a methods based approach to defining queries and data manipulations and when chained together exudes an almost SQL like readability. Some of the methods are simple setters of an struct field, while other methods orchestrate groutines and channels to enable non-blocking database reads.
 
 Some simple code examples...
 
@@ -50,7 +50,7 @@ A MySQL query:
     import (
       "github.com/ros2hp/method-db/tx"
       "github.com/ros2hp/method-db/dynamodb"
-      "github.com/ros2hp/method-db/mysql" // contains MySQL's implementation of MethodDB interfaces 
+      "github.com/ros2hp/method-db/mysql" 
       )
       type pNodeBid struct {
        Bid  int
@@ -61,7 +61,7 @@ A MySQL query:
       ctx, cancel := context.WithCancel(context.Background())
       defer cancel() 
       
-      // register databases
+      // register dynamodb and MySQL databases
 
       dynamodb.Register(ctx, "default", &wpEnd,
         []db.Option{db.Option{Name: "throttler", Val: grmgr.Control}, db.Option{Name: "Region", Val: "us-east-1"}}...)
@@ -89,3 +89,13 @@ A MySQL query:
           . . .
         }
 . . .
+
+##Advanced Query Methods
+
+**Method-db's** more advanced query methods are tailored towards multi-row queries and long running database operations, such as large  data loads. These methods aim to deliver higher throughput with full restart ability with little to no coding effort. 
+
+* Select() accepts multiple bind variable arguments enabling the database to write to one bind variable while the application reads from another, for non-blocking database reads.
+* ExecutebyChannel(), as an alternative to Execute(), returns a query result as a Go Channel or slice of Go Channels, enabling asynchronous communication between the database and the application. 
+* orchestrate parallel processing of a table (or index) using the Worker() method
+* pass in a worker function to ExecuteByFunc() and MethodDB will orchestrate a channel to pass the database results to the function
+* maintain the state of a paginated query with Paginate() method. Currently supported on Dynamodb only. Provides full recovery from application failures, enabling the application to restart a paginated query from last page of the previously failed query. Particularly useful for implementing fully recoverable long running database operations.
