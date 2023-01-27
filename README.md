@@ -95,8 +95,8 @@ A MySQL query:
 
 **Method-db's** more advanced query methods are tailored towards multi-row queries and long running database operations, such as large  data loads. These methods aim to deliver higher throughput with full restart ability with little to no coding effort. 
 
-* Select() accepts multiple bind variable arguments enabling the database to write to one bind variable while the application reads from the other enabling non-blocking database reads.
-* ExecutebyChannel(), as an alternative to Execute(), returns a query result as a Go Channel or slice of Go Channels, enabling asynchronous communication between the database and the application. 
-* orchestrate parallel processing of a table (or index) using the Worker() method
-* pass in a worker function to ExecuteByFunc() and MethodDB will orchestrate a channel to pass the database results to the function
-* maintain the state of a paginated query with Paginate() method. Currently supported on Dynamodb only. Provides full recovery from application failures, enabling the application to restart a paginated query from last page of the previously failed query. Particularly useful for implementing fully recoverable long running database operations.
+* __Select()__ accepts multiple bind variable arguments enabling the database to write to one bind variable while the application reads from the other enabling non-blocking database reads.
+* __ExecutebyChannel()__, as an alternative to Execute(), returns a query result as a Go Channel or slice of Go Channels, enabling asynchronous communication between the database and the application. 
+* orchestrate parallel processing of a table (or index) using the __Worker()__ method
+* pass in a worker function to __ExecuteByFunc()__ and Method-bd will orchestrate a channel to pass the database results to the function
+* maintain the state of a paginated query with __Paginate()__ method. Currently supported on Dynamodb only. Provides full recovery from application failures, enabling the application to restart a paginated query from last page of the previously failed query. Particularly useful for implementing fully recoverable long running database operations.
