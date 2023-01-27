@@ -2,7 +2,9 @@
 
 The purpose of **Method-db-4-Go**, or **Method-db** for short, is to provide Go developers with a single api that caters to SQL and NoSQL databases.   
 
-Currently __Method-db__ supports AWS's __Dynamodb__ and any database that supports the __database/SQL__ package of Go's standard library. The next database to be added will be Google's __Spanner__, followed by Postgres's own driver.
+Currently __Method-db__  support for databases is very limited being basically AWS's __Dynamodb__ for NoSQL and any SQL database that supports  Go's standard library package __database/SQL__. However over the next months it is planned to support Google's __Spanner__ a direct driver for __Postgres__.
+
+Othere database that need support are any of the cloud-native platforms such as CoackroachDB and ?. 
 
 **Method-db** uses a methods based approach to defining queries and data manipulations and when chained together exudes an almost SQL like readability. Some of the methods are simple setters of a struct field, while other methods orchestrate groutines and channels to enable non-blocking database reads.
 
@@ -101,6 +103,55 @@ A MySQL query:
 * pass in a worker function to ***ExecuteByFunc()*** and Method-bd will orchestrate a channel to pass the database results to the function
 * maintain the state of a paginated query with ***Paginate()*** method. Currently supported on Dynamodb only. Provides full recovery from application failures, enabling the application to restart a paginated query from last page of the previously failed query. Particularly useful for implementing fully recoverable long running database operations.
 
+The example below of ***ExecutebyChannel()*** comes from __githum.com/ros2hp/gograph/dp2__:
+
+```
+    // DP passes a propagate function to index query using key with node type
+    func DP(ctx context.Context, ty string, id uuid.UID, restart bool, has11 map[string]struct{}) error {
+
+	var buf1, buf2 []UnprocRec
+
+	slog.LogAlert(logid, fmt.Sprintf("started. paginate id: %s. restart: %v, grmgr-parallel: %d ", id.Base64(), restart, *parallel))
+
+	ptx := tx.NewQueryContext(ctx, "dpQuery", tbl.Block, "TyIX")
+	ptx.Select(&buf1, &buf2).Key("Ty", types.GraphSN()+"|"+ty)
+	ptx.Limit(param.DPbatch).Paginate(id, restart) // not a scan so no worker possible
+
+	limiterDP := grmgr.New("dp", *parallel)
+
+	// blocking call..
+	err := ptx.ExecuteByFunc(func(ch_ interface{}) error {
+
+		ch := ch_.(chan []UnprocRec)
+
+		for qs := range ch {
+			// page (aka buffer) of UnprocRec{}
+
+			for _, u := range qs {
+
+				ty := u.Ty[strings.Index(u.Ty, "|")+1:]
+
+				limiterDP.Control()
+
+				go Propagate(ctx, limiterDP, u.PKey, ty, has11)
+
+				if elog.Errors() {
+					panic(fmt.Errorf("Error in an asynchronous routine - see system log"))
+				}
+			}
+			// wait for dp ascyn routines to finish
+			// alternate solution, extend to three bind variables. Requires MethodDB change.
+			limiterDP.Wait()
+		}
+		return nil
+	})
+
+	limiterDP.Unregister()
+
+	return err
+
+    }
+```
 
 ## Data Mutations
 
