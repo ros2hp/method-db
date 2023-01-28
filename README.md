@@ -1,14 +1,12 @@
 # What is method-db-4-Go?
 
-"So out of the GoGraph project arose a sub-project, whose raison d'etre is to replace the confusing concoction of database boilerplate for SQL and NOSQL, with a single, method based approach, which is more readable, more concise and more productive and adds value to database operations, like recoverable queries and asynchronous non-blocking database reads, while facilitating higher throughput with zero code effort. I call it MethodDB-4-Go, or MethodDB for short,..."
+> "So out of the GoGraph project arose a sub-project, whose raison d'etre is to replace the confusing concoction of database boilerplate for SQL and NOSQL, with a single, method based approach, which is more readable, more concise and more productive and adds value to database operations, like recoverable queries and asynchronous non-blocking database reads, while facilitating higher throughput with zero code effort. I call it MethodDB-4-Go, or MethodDB for short,..."
 
-That excerpt comes from an article (in three parts) on method-id.
+That excerpt comes from an article (in three parts) on method-db.
 
-Currently __Method-db__  support for databases is very limited being basically AWS's __Dynamodb__ for NoSQL and any SQL database that supports  Go's standard library package __database/SQL__. However over the next months it is planned to support Google's __Spanner__ a direct driver for __Postgres__.
+Currently __Method-db__  support only supports AWS's __Dynamodb__ for NoSQL and any SQL database that supports Go's standard library package __database/SQL__. Over the next months it is planned to support Google's __Spanner__ a direct driver for __Postgres__.
 
-Othere database that need support are any of the cloud-native platforms such as CoackroachDB and ?. 
-
-**Method-db** uses a methods based approach to defining queries and data manipulations and when chained together exudes an almost SQL like readability. Some of the methods are simple setters of a struct field, while other methods orchestrate groutines and channels to enable non-blocking database reads.
+Othere database that need support are any of the cloud-native platforms such as CockroachDB and YugaByte. 
 
 Some simple code examples...
 
