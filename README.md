@@ -4,9 +4,9 @@
 
 That excerpt comes from an article (in three parts) on method-db.
 
-Currently __Method-db__  support only supports AWS's __Dynamodb__ for NoSQL and any SQL database that supports Go's standard library package __database/SQL__. Over the next months it is planned to support Google's __Spanner__ a direct driver for __Postgres__.
+Currently __Method-db__ supports AWS's __Dynamodb__ as its only NoSQL offering and any SQL database that supports Go's standard library package __database/SQL__. Over the next months it is planned to support Google's __Spanner__ and the __Postgres__ driver.
 
-Othere database that need support are any of the cloud-native platforms such as CockroachDB and YugaByte. 
+Othere database that are planned for support are any of the cloud-native platforms such as CockroachDB, YugaByte and MongoDB. 
 
 Some simple code examples...
 
