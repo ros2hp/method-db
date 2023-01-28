@@ -2,11 +2,11 @@
 
 > "So out of the GoGraph project arose a sub-project, whose raison d'etre is to replace the confusing concoction of database boilerplate for SQL and NOSQL, with a single, method based approach, which is more readable, more concise and more productive and adds value to database operations, like recoverable queries and asynchronous non-blocking database reads, while facilitating higher throughput with zero code effort. I call it MethodDB-4-Go, or MethodDB for short,..."
 
-That excerpt comes from an article (in three parts) on method-db.
+That excerpt comes from an article in medium.com (in three parts) on method-db.
 
-Currently __Method-db__ supports AWS's __Dynamodb__ as its only NoSQL offering and any SQL database that supports Go's standard library package __database/SQL__. Over the next months it is planned to support Google's __Spanner__ and the __Postgres__ driver.
+Currently __Method-db__ supports AWS's __Dynamodb__ as its only NoSQL offering and any SQL database that supports Go's standard library package __database/SQL__. Over the next months it is planned to support Google's __Spanner__, and the Oracle and __Postgres__ drivers.
 
-Othere database that are planned for support are any of the cloud-native platforms such as CockroachDB, YugaByte and MongoDB. 
+Othere databases that are planned to support are the cloud-native platforms such as CockroachDB, YugaByte. 
 
 Some simple code examples...
 
