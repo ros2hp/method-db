@@ -6,8 +6,6 @@ That excerpt comes from an up coming article in medium.com (in three parts) on m
 
 Currently __Method-db__ supports AWS's __Dynamodb__ as its only NoSQL offering and any SQL database that supports Go's standard library package __database/SQL__. Over the next months it is planned to support Google's __Spanner__, and the Oracle and __Postgres__ drivers.
 
-Othere databases that are planned to support are the cloud-native platforms such as CockroachDB, YugaByte. 
-
 For examples of it use I direct you to GoGraph (github.com/ros2hp/gograph) where method-db is used exclusively for all communication with Dynamodb and MySQL.
 
 In the meantime here are some code snippets from GoGraph.
