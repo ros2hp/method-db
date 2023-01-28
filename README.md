@@ -1,6 +1,8 @@
 # What is method-db-4-Go?
 
-The purpose of **Method-db-4-Go**, or **Method-db** for short, is to provide Go developers with a single api that caters to SQL and NoSQL databases.   
+"So out of the GoGraph project arose a sub-project, whose raison d'etre is to replace the confusing concoction of database boilerplate for SQL and NOSQL, with a single, method based approach, which is more readable, more concise and more productive and adds value to database operations, like recoverable queries and asynchronous non-blocking database reads, while facilitating higher throughput with zero code effort. I call it MethodDB-4-Go, or MethodDB for short,..."
+
+That excerpt comes from an article (in three parts) on method-id.
 
 Currently __Method-db__  support for databases is very limited being basically AWS's __Dynamodb__ for NoSQL and any SQL database that supports  Go's standard library package __database/SQL__. However over the next months it is planned to support Google's __Spanner__ a direct driver for __Postgres__.
 
