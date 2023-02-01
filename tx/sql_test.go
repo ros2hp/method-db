@@ -29,7 +29,7 @@ func TestSQLUpdateStaff(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph")
@@ -80,7 +80,7 @@ func TestSQLUpdateStaffOr(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph")
@@ -132,7 +132,7 @@ func TestSQLUpdateStaffOrAnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph")
@@ -187,7 +187,7 @@ func TestSQLUpdateStaffKeyWhere(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph")
@@ -238,7 +238,7 @@ func TestSQLUpdateStaffWhere(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph")
@@ -289,7 +289,7 @@ func TestSQLUpdateStaffWhereOr(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph")
@@ -344,7 +344,7 @@ func TestSQLUpdateStaffWhereOr2(t *testing.T) {
 	b = 30
 	c = 100000
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph").Prepare()
@@ -403,7 +403,7 @@ func xfW(t *testing.T) {
 	b = 30
 	c = 100000
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph").Prepare()
@@ -457,7 +457,7 @@ func TestSQLUpdateStaff9(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph").Prepare()
@@ -509,7 +509,7 @@ func TestSQLUpdateStaff10(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph").Prepare()
@@ -566,7 +566,7 @@ func TestSQLUpdateStaffWhereOr3(t *testing.T) {
 	b = 23
 	c = 100000
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph").Prepare()
@@ -624,7 +624,7 @@ func TestSQLUpdateStaffWhereOr4(t *testing.T) {
 	b = 23
 	c = 100000
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph").Prepare()
@@ -686,7 +686,7 @@ func TestSQLUpdateStaffWhere5(t *testing.T) {
 	b = 23
 	c = 100000
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph").Prepare()
@@ -748,7 +748,7 @@ func TestSQLUpdateStaffFilter5(t *testing.T) {
 	b = 23
 	c = 100000
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph").Prepare()
@@ -809,7 +809,7 @@ func TestSQLPaginate(t *testing.T) {
 	b := "AI"
 	c := 19
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("query-test-label", tbl).DB("mysql-GoGraph").Prepare()
