@@ -3,6 +3,7 @@ package tx
 import (
 	"context"
 	//	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -245,7 +246,7 @@ func TestQueryTypesPtrSliceSQL(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 	var sk []Testlog
 
@@ -280,7 +281,7 @@ func TestQueryThreeBindvars(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 	var (
 		sk  []Testlog
@@ -315,7 +316,7 @@ func TestQueryZeroBindvars(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 
 	txg := NewQuery("LogTest", "Log$GoTest").DB("mysql-GoGraph")
@@ -345,7 +346,7 @@ func TestQueryTypesPtrSlicePtrSQL(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 	var sk []*Testlog
 
@@ -381,7 +382,7 @@ func TestQueryTypesPtrSlicePtrNestedSQL(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 	var sk []*Testlog
 
@@ -421,7 +422,7 @@ func TestQueryTypesPtrSliceNested2SQL(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 	var sk []Testlog
 
@@ -461,7 +462,7 @@ func TestQueryTypesPtrSlicePtrNested2SQL(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 	var sk []*Testlog
 
@@ -501,7 +502,7 @@ func TestQueryTypesPtrSlicePtrNested2SQL2(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 	var sk []*Testlog
 
@@ -541,7 +542,7 @@ func TestQueryTypesPtrSlicePtrNested2SQL3(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mysql.Register(ctx, "mysql-GoGraph", "admin:gjIe8Hl9SFD1g3ahyu6F@tcp(mysql8.cjegagpjwjyi.us-east-1.rds.amazonaws.com:3306)/GoGraph")
+	mysql.Register(ctx, "mysql-GoGraph", os.Getenv("MYSQL")+"/GoGraph")
 	//select test,logdt,status,nodes from Log$GoTest;
 	var sk []*Testlog
 
