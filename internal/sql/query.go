@@ -157,7 +157,6 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 		sqlValues = append(sqlValues, v.Value())
 
 		if wa > 0 && i < wa-1 {
-			// TODO: what about OrFilter
 			s.WriteString(" and ")
 		} else if i == wa-1 {
 			s.WriteString(") ")
@@ -203,6 +202,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 		fltr := q.GetFilterAttrs()
 		wa = len(fltr)
 		lenVals = len(sqlValues)
+
 		for i, v := range fltr {
 
 			if q.GetOr() > 0 && q.GetAnd() > 0 {
@@ -267,12 +267,23 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 		}
 	}
 	//
-	if len(q.GetHaving()) > 0 {
-		s.WriteString(" having ")
-		s.WriteString(q.GetHaving())
-		if lenVals == 0 {
-			sqlValues = append(sqlValues, q.GetValues()...)
+	if len(q.GetGroupBy() > 0) {
+
+		s.WriteString(" group by ")
+		s.WriteString(q.GetGroupBy())
+
+		if len(q.GetHaving()) > 0 {
+			s.WriteString(" having ")
+			s.WriteString(q.GetHaving())
+			if lenVals == 0 {
+				sqlValues = append(sqlValues, q.GetValues()...)
+			}
 		}
+	}
+
+	// check parameters ? equals Values
+	if strings.Count(s.String(), "?") != len(q.GetValues()) {
+		return fmt.Errorf("Expected %d Values got %d", strings.Count(s.String(), "?"), len(q.GetValues()))
 	}
 
 	if q.HasOrderBy() {

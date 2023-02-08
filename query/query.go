@@ -177,11 +177,12 @@ type QueryHandle struct {
 	// AndFilter, OrFilter counts
 	af, of int
 	//
-	hint string
-	// Where
-	where string
-	// Having
-	having string
+	// SQL
+	//
+	hint    string
+	where   string
+	having  string
+	groupby string
 	// Values
 	values []interface{}
 }
@@ -361,17 +362,24 @@ func (q *QueryHandle) Where(s string) *QueryHandle {
 	return q
 }
 
-func (q *QueryHandle) Having(s string) *QueryHandle {
-	q.having = s
-	return q
-}
-
 func (q *QueryHandle) GetWhere() string {
 	return q.where
 }
 
+func (q *QueryHandle) Having(s string) *QueryHandle {
+	q.having = s
+	return q
+}
 func (q *QueryHandle) GetHaving() string {
 	return q.having
+}
+
+func (q *QueryHandle) GroupBy(s string) *QueryHandle {
+	q.groupby = s
+	return q
+}
+func (q *QueryHandle) GetGroupBy() string {
+	return q.groupby
 }
 
 func (q *QueryHandle) Values(v ...interface{}) *QueryHandle {
