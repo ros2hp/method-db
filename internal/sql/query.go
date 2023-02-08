@@ -267,7 +267,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 		}
 	}
 	//
-	if len(q.GetGroupBy() > 0) {
+	if len(q.GetGroupBy()) > 0 {
 
 		s.WriteString(" group by ")
 		s.WriteString(q.GetGroupBy())
