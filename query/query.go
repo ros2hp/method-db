@@ -178,8 +178,11 @@ type QueryHandle struct {
 	af, of int
 	//
 	hint string
-	// Where, Values method
-	where  string
+	// Where
+	where string
+	// Having
+	having string
+	// Values
 	values []interface{}
 }
 
@@ -250,6 +253,7 @@ func (q *QueryHandle) Clone() *QueryHandle {
 	// Where, Values method
 	d.where = q.where
 	d.values = q.values
+	d.having = q.having
 
 	return &d
 
@@ -357,12 +361,25 @@ func (q *QueryHandle) Where(s string) *QueryHandle {
 	return q
 }
 
+func (q *QueryHandle) Having(s string) *QueryHandle {
+	q.having = s
+	return q
+}
+
 func (q *QueryHandle) GetWhere() string {
 	return q.where
 }
 
+func (q *QueryHandle) GetHaving() string {
+	return q.having
+}
+
 func (q *QueryHandle) Values(v ...interface{}) *QueryHandle {
-	q.values = v
+	if len(v) == 0 {
+		panic(fmt.Errorf("Values() expected an argument(s) got none"))
+	}
+	q.values = append(q.values, v...)
+	//	q.values = v
 	return q
 }
 

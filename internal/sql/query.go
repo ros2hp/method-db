@@ -101,6 +101,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 		row        *sql.Row
 		rows       *sql.Rows
 		prepStmt   *sql.Stmt
+		lenVals    int // entries in sqlValues
 	)
 
 	for _, o := range opt {
@@ -133,7 +134,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 	s.WriteString(" from ")
 	s.WriteString(string(q.GetTable()))
 
-	var whereVals []interface{}
+	var sqlValues []interface{}
 
 	if len(q.GetKeyAttrs()) > 0 || len(q.GetWhere()) > 0 || len(q.GetFilterAttrs()) > 0 {
 		s.WriteString(" where ")
@@ -153,7 +154,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 		s.WriteString(v.Name())
 		s.WriteString(sqlOpr(v.GetOprStr()))
 		s.WriteByte('?')
-		whereVals = append(whereVals, v.Value())
+		sqlValues = append(sqlValues, v.Value())
 
 		if wa > 0 && i < wa-1 {
 			// TODO: what about OrFilter
@@ -192,7 +193,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 			s.WriteByte(')')
 		}
 
-		whereVals = append(whereVals, q.GetValues()...)
+		sqlValues = append(sqlValues, q.GetValues()...)
 
 	} else {
 
@@ -201,6 +202,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 		// TODO: check non-keys only
 		fltr := q.GetFilterAttrs()
 		wa = len(fltr)
+		lenVals = len(sqlValues)
 		for i, v := range fltr {
 
 			if q.GetOr() > 0 && q.GetAnd() > 0 {
@@ -253,7 +255,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 			}
 			if !found {
 				s.WriteByte('?')
-				whereVals = append(whereVals, v.Value())
+				sqlValues = append(sqlValues, v.Value())
 			}
 			// (Key and key) and (filter or filter)
 
@@ -265,6 +267,14 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 		}
 	}
 	//
+	if len(q.GetHaving()) > 0 {
+		s.WriteString(" having ")
+		s.WriteString(q.GetHaving())
+		if lenVals == 0 {
+			sqlValues = append(sqlValues, q.GetValues()...)
+		}
+	}
+
 	if q.HasOrderBy() {
 		s.WriteString(q.OrderByString())
 	}
@@ -299,15 +309,15 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 
 		if oSingleRow {
 			if ctx != nil {
-				row = prepStmt.QueryRowContext(ctx, whereVals...)
+				row = prepStmt.QueryRowContext(ctx, sqlValues...)
 			} else {
-				row = prepStmt.QueryRow(whereVals...)
+				row = prepStmt.QueryRow(sqlValues...)
 			}
 		} else {
 			if ctx != nil {
-				rows, err = prepStmt.QueryContext(ctx, whereVals...)
+				rows, err = prepStmt.QueryContext(ctx, sqlValues...)
 			} else {
-				rows, err = prepStmt.Query(whereVals...)
+				rows, err = prepStmt.Query(sqlValues...)
 			}
 		}
 
@@ -317,15 +327,15 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 		log.LogDebug("executeQuery Non-prepared query")
 		if oSingleRow {
 			if ctx != nil {
-				row = client.QueryRowContext(ctx, s.String(), whereVals...)
+				row = client.QueryRowContext(ctx, s.String(), sqlValues...)
 			} else {
-				row = client.QueryRow(s.String(), whereVals...)
+				row = client.QueryRow(s.String(), sqlValues...)
 			}
 		} else {
 			if ctx != nil {
-				rows, err = client.QueryContext(ctx, s.String(), whereVals...)
+				rows, err = client.QueryContext(ctx, s.String(), sqlValues...)
 			} else {
-				rows, err = client.Query(s.String(), whereVals...)
+				rows, err = client.Query(s.String(), sqlValues...)
 			}
 		}
 	}
