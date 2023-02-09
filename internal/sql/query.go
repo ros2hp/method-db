@@ -35,7 +35,7 @@ func crProjection(q *query.QueryHandle) *strings.Builder {
 		if v.IsFetch() {
 			if first {
 				if len(v.Literal()) > 0 {
-					s.WriteString(v.Literal() + " " + v.Name()) // for SQL : ,col alias,
+					s.WriteString(v.Literal() + "  as " + v.Name()) // for SQL : ,col alias,
 				} else {
 					s.WriteString(v.Name())
 				}
@@ -43,7 +43,7 @@ func crProjection(q *query.QueryHandle) *strings.Builder {
 			} else {
 				s.WriteByte(',')
 				if len(v.Literal()) > 0 {
-					s.WriteString(v.Literal() + " " + v.Name()) // for SQL : ,col alias,
+					s.WriteString(v.Literal() + " as " + v.Name()) // for SQL : ,col alias,
 				} else {
 					s.WriteString(v.Name())
 				}
