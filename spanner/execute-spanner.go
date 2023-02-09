@@ -11,13 +11,13 @@ import (
 	"time"
 
 	//"github.com/GoGraph/dbs"
-	param "github.com/GoGraph/dygparam"
+
 	//elog "github.com/GoGraph/rdf/errlog"
 	slog "github.com/GoGraph/syslog"
+	
+	param "github.com/ros2hp/method-db/db/param"
 	"github.com/ros2hp/method-db/mut"
-	"github.com/GoGraph/util"
-
-	//"google.golang.org/api/spanner/v1"
+	"github.com/GoGraph/ros2hp/method-db/uuid"
 
 	"cloud.google.com/go/spanner" //v1.21.0
 )
@@ -336,8 +336,8 @@ func genSQLBulkInsert(m *mut.Mutation, bi mut.Mutations) string {
 			case bool:
 				sql.WriteString(fmt.Sprintf("%v", x))
 			case []byte:
-				sql.WriteString(fmt.Sprintf("from_base64(%q)", util.UID(x).String()))
-			case util.UID:
+				sql.WriteString(fmt.Sprintf("from_base64(%q)", uuid.UID(x).String()))
+			case uuid.UID:
 				sql.WriteString(fmt.Sprintf("from_base64(%q)", x.String()))
 			}
 		}
@@ -570,10 +570,10 @@ func logStmts(bStmts [][]spanner.Statement) {
 				case "pk", "PKey", "Puid":
 					switch x := kv.(type) {
 					case []byte:
-						uuids = util.UID(x).String()
+						uuids = uuid.UID(x).String()
 					case [][]uint8:
 						for _, x := range x {
-							uuids = util.UID(x).String()
+							uuids = uuid.UID(x).String()
 						}
 
 					}

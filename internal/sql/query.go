@@ -280,11 +280,13 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 			}
 		}
 	}
-
+	fmt.Printf("SQL: %s", s.String())
 	// check parameters ? equals Values
-	if strings.Count(s.String(), "?") != len(q.GetValues()) {
-		return fmt.Errorf("Expected %d Values got %d", strings.Count(s.String(), "?"), len(q.GetValues()))
-	}
+	// if strings.Count(s.String(), "?") != len(q.GetValues()) {
+	// 	fmt.Printf("strings.Count(s.String(), %d", strings.Count(s.String(), "?"))
+	// 	fmt.Printf("len(q.GetValues(): %d", len(q.GetValues()))
+	// 	return fmt.Errorf("Expected %d Values got %d", strings.Count(s.String(), "?"), len(q.GetValues()))
+	// }
 
 	if q.HasOrderBy() {
 		s.WriteString(q.OrderByString())

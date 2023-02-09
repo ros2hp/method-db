@@ -10,14 +10,15 @@ import (
 	"time"
 
 	blk "github.com/GoGraph/block"
-	//	"github.com/GoGraph/dbConn"
-	param "github.com/GoGraph/dygparam"
-	//gerr "github.com/GoGraph/dygerror"
+
 	mon "github.com/GoGraph/monitor"
 	slog "github.com/GoGraph/syslog"
-	"github.com/GoGraph/uuid"
+
+	param "github.com/ros2hp/method-db/db/param"
+	"github.com/ros2hp/method-db/uuid"
 
 	"cloud.google.com/go/spanner" //v1.21.0
+
 	"google.golang.org/api/iterator"
 )
 
@@ -758,7 +759,7 @@ func FetchNode(uid uuid.UID, subKey ...string) (blk.NodeBlock, error) {
 
 }
 
-//TODO: replace this function with the one above. Unnecessary to have two.
+// TODO: replace this function with the one above. Unnecessary to have two.
 func FetchNodeItem(uid uuid.UID, sortk string) (blk.NodeBlock, error) {
 	return FetchNode(uid, sortk)
 }

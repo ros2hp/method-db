@@ -255,7 +255,7 @@ func TestQueryTypesPtrSliceSQL(t *testing.T) {
 	err := txg.Execute()
 
 	if err != nil {
-		t.Logf("Error: %s", err)
+		t.Errorf("Error: %s", err)
 	}
 
 	if len(sk) != 28 {
@@ -355,7 +355,7 @@ func TestQueryTypesPtrSlicePtrSQL(t *testing.T) {
 	err := txg.Execute()
 
 	if err != nil {
-		t.Logf("Error: %s", err)
+		t.Errorf("Error: %s", err)
 	}
 
 	t.Logf("Query count %d\n", len(sk))
