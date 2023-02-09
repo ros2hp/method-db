@@ -390,7 +390,7 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 			ii := i + 1
 			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(v)
 		}
-		fmt.Println("xxexprCond: ", exprCond, exprNames, exprValues)
+
 		update = &types.Update{
 			Key:                       av,
 			ExpressionAttributeNames:  exprNames,
