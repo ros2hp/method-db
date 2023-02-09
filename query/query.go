@@ -986,6 +986,8 @@ func (q *QueryHandle) Select(a_ ...interface{}) *QueryHandle {
 		return q
 	}
 
+	q.values = nil
+
 	if len(a_) == 0 {
 		q.err = fmt.Errorf("requires upto two bind variables")
 		return q

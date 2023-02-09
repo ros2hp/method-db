@@ -835,7 +835,7 @@ func TestSQLPaginate(t *testing.T) {
 	}
 
 	if err != nil {
-		t.Logf("Error: %s", err)
+		t.Errorf("Error: %s", err)
 	}
 
 }

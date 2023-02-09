@@ -137,6 +137,7 @@ func (h MySQL) ExecuteQuery(ctx context.Context, q *query.QueryHandle, o ...db.O
 	if ctx == nil {
 		ctx = h.ctx
 	}
+
 	return mdbsql.ExecuteQuery(ctx, h.DB, q, o...)
 
 }

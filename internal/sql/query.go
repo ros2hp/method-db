@@ -118,8 +118,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 	if q.Error() != nil {
 		return fmt.Errorf(fmt.Sprintf("Cannot execute query because of error %s", q.Error()))
 	}
-
-	// validate query metadata in query.QueryHandle
+	// validate query metadata in query.QueryHand
 	err = validateInput(q)
 	if err != nil {
 		return err
@@ -130,7 +129,6 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 
 	// define projection based on struct passed via Select()
 	s := crProjection(q)
-
 	s.WriteString(" from ")
 	s.WriteString(string(q.GetTable()))
 
@@ -141,7 +139,6 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 	}
 
 	// ************** Key() *************
-
 	wa := len(q.GetKeyAttrs())
 	wkeys := wa
 	// TODO: check keys only
@@ -280,7 +277,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 			}
 		}
 	}
-	//fmt.Printf("SQL: %s", s.String())
+
 	// check parameters ? equals Values
 	// if strings.Count(s.String(), "?") != len(q.GetValues()) {
 	// 	fmt.Printf("strings.Count(s.String(), %d", strings.Count(s.String(), "?"))
@@ -327,6 +324,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 				row = prepStmt.QueryRow(sqlValues...)
 			}
 		} else {
+
 			if ctx != nil {
 				rows, err = prepStmt.QueryContext(ctx, sqlValues...)
 			} else {
