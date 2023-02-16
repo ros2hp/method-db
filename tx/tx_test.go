@@ -37,7 +37,21 @@ type Address struct {
 	Cntry               Country
 }
 
-var err error
+var (
+	err  error
+	gtbl tbl.Name = "GoUnitTest"
+)
+
+func init() {
+
+	var wpEnd sync.WaitGroup
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dyn.Register(ctx, "default", &wpEnd, []db.Option{db.Option{Name: "Region", Val: "us-east-1"}}...)
+
+}
 
 func TestSelect(t *testing.T) {
 
@@ -174,7 +188,6 @@ func TestQueryTypesPtrSlice(t *testing.T) {
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -210,7 +223,6 @@ func TestQueryTypesStruct(t *testing.T) {
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -242,7 +254,6 @@ func TestQueryTypesPtrSliceSQL(t *testing.T) {
 		Nodes  int
 	}
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -277,7 +288,6 @@ func TestQueryThreeBindvars(t *testing.T) {
 		Nodes  int
 	}
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -312,7 +322,6 @@ func TestQueryZeroBindvars(t *testing.T) {
 		Nodes  int
 	}
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -342,7 +351,6 @@ func TestQueryTypesPtrSlicePtrSQL(t *testing.T) {
 		Nodes  int
 	}
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -378,7 +386,6 @@ func TestQueryTypesPtrSlicePtrNestedSQL(t *testing.T) {
 		Nstatus
 	}
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -418,7 +425,6 @@ func TestQueryTypesPtrSliceNested2SQL(t *testing.T) {
 		Nstatus
 	}
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -458,7 +464,6 @@ func TestQueryTypesPtrSlicePtrNested2SQL(t *testing.T) {
 		Nstatus
 	}
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -498,7 +503,6 @@ func TestQueryTypesPtrSlicePtrNested2SQL2(t *testing.T) {
 		Nstatus
 	}
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -538,7 +542,6 @@ func TestQueryTypesPtrSlicePtrNested2SQL3(t *testing.T) {
 		Nstatus
 	}
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -568,7 +571,6 @@ func TestQueryPop1(t *testing.T) {
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -576,7 +578,7 @@ func TestQueryPop1(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", "GoUnitTest")
+	txg := NewQuery("pop", gtbl)
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err := txg.Execute()
 
@@ -595,7 +597,6 @@ func TestQueryPop2(t *testing.T) {
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -603,7 +604,7 @@ func TestQueryPop2(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", "GoUnitTest")
+	txg := NewQuery("pop", gtbl)
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err := txg.Execute()
 
@@ -617,13 +618,11 @@ func TestQueryPop2(t *testing.T) {
 
 func TestQueryPopUpdate(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -631,7 +630,7 @@ func TestQueryPopUpdate(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err := txg.Execute()
@@ -644,14 +643,14 @@ func TestQueryPopUpdate(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	utx.NewUpdate(tbl).AddMember("PKey", 1001, mut.IsKey).AddMember("SortK", "Sydney", mut.IsKey).AddMember("Population", sk.Pop+1)
+	utx.NewUpdate(gtbl).AddMember("PKey", 1001, mut.IsKey).AddMember("SortK", "Sydney", mut.IsKey).AddMember("Population", sk.Pop+1)
 
 	err = utx.Execute()
 	if err != nil {
 		t.Errorf("Update error: %s", err.Error())
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -668,13 +667,11 @@ func TestQueryPopUpdate(t *testing.T) {
 
 func TestQueryPopUpdateKey(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -682,7 +679,7 @@ func TestQueryPopUpdateKey(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
@@ -695,7 +692,7 @@ func TestQueryPopUpdateKey(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	utx.NewUpdate(tbl).Key("PKey", 1001, "GT").Key("SortK", "Sydney").Set("Population", sk.Pop+1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001, "GT").Key("SortK", "Sydney").Set("Population", sk.Pop+1)
 
 	err = utx.Execute()
 	if err != nil {
@@ -704,7 +701,7 @@ func TestQueryPopUpdateKey(t *testing.T) {
 		}
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -720,13 +717,11 @@ func TestQueryPopUpdateKey(t *testing.T) {
 }
 func TestQueryPopUpdate2(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -734,7 +729,7 @@ func TestQueryPopUpdate2(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err := txg.Execute()
@@ -747,14 +742,14 @@ func TestQueryPopUpdate2(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	utx.NewUpdate(tbl).AddMember("PKey", 1001).AddMember("SortK", "Sydney").AddMember("Population", sk.Pop+1)
+	utx.NewUpdate(gtbl).AddMember("PKey", 1001).AddMember("SortK", "Sydney").AddMember("Population", sk.Pop+1)
 
 	err = utx.Execute()
 	if err != nil {
 		t.Errorf("Update error: %s", err.Error())
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -771,13 +766,11 @@ func TestQueryPopUpdate2(t *testing.T) {
 
 func TestQueryPopUpdate3(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -785,7 +778,7 @@ func TestQueryPopUpdate3(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err := txg.Execute()
@@ -798,14 +791,14 @@ func TestQueryPopUpdate3(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").AddMember("Population", sk.Pop+1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").AddMember("Population", sk.Pop+1)
 
 	err = utx.Execute()
 	if err != nil {
 		t.Errorf("Update error: %s", err.Error())
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -823,13 +816,11 @@ func TestQueryPopUpdate3(t *testing.T) {
 
 func TestQueryPopUpdateSet(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -837,7 +828,7 @@ func TestQueryPopUpdateSet(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err := txg.Execute()
@@ -850,14 +841,14 @@ func TestQueryPopUpdateSet(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Set("Population", sk.Pop+1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Set("Population", sk.Pop+1)
 
 	err = utx.Execute()
 	if err != nil {
 		t.Errorf("Update error: %s", err.Error())
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -875,13 +866,11 @@ func TestQueryPopUpdateSet(t *testing.T) {
 
 func TestQueryPopUpdateSetKeyWrong(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -889,7 +878,7 @@ func TestQueryPopUpdateSetKeyWrong(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err := txg.Execute()
@@ -902,14 +891,14 @@ func TestQueryPopUpdateSetKeyWrong(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Set("Population", sk.Pop+1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Set("Population", sk.Pop+1)
 
 	err = utx.Execute()
 	if err != nil {
 		t.Errorf("Update error: %s", err.Error())
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -928,13 +917,11 @@ func TestQueryPopUpdateSetKeyWrong(t *testing.T) {
 func TestQueryPopUpdateError(t *testing.T) {
 	var err error
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -942,7 +929,7 @@ func TestQueryPopUpdateError(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
@@ -955,7 +942,7 @@ func TestQueryPopUpdateError(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	utx.NewUpdate(tbl).Key("PKey2", 1001).Key("SortK", "Sydney").AddMember("Population", sk.Pop+1)
+	utx.NewUpdate(gtbl).Key("PKey2", 1001).Key("SortK", "Sydney").AddMember("Population", sk.Pop+1)
 
 	err = utx.Execute()
 	if err != nil {
@@ -964,7 +951,7 @@ func TestQueryPopUpdateError(t *testing.T) {
 		}
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -982,13 +969,11 @@ func TestQueryPopUpdateError(t *testing.T) {
 
 func TestQueryPopUpdateSAdd(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -996,7 +981,7 @@ func TestQueryPopUpdateSAdd(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err := txg.Execute()
@@ -1009,14 +994,14 @@ func TestQueryPopUpdateSAdd(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Add("Population", 1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Add("Population", 1)
 
 	err = utx.Execute()
 	if err != nil {
 		t.Errorf("Update error: %s", err.Error())
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -1034,14 +1019,12 @@ func TestQueryPopUpdateSAdd(t *testing.T) {
 
 func TestQueryPopUpdateWhere22(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		SortK string
 		Pop   int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1049,7 +1032,7 @@ func TestQueryPopUpdateWhere22(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err := txg.Execute()
@@ -1062,14 +1045,14 @@ func TestQueryPopUpdateWhere22(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation)`).Subtract("Population", 1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation)`).Subtract("Population", 1)
 
 	err = utx.Execute()
 	if err != nil {
 		t.Errorf("Update error: %s", err.Error())
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -1087,13 +1070,11 @@ func TestQueryPopUpdateWhere22(t *testing.T) {
 
 func TestQueryPopUpdateWhere23(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1101,7 +1082,7 @@ func TestQueryPopUpdateWhere23(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
@@ -1114,8 +1095,8 @@ func TestQueryPopUpdateWhere23(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	//utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists("MaxPopulation") and Population<MaxPopulation`).Subtract("Population", 1)
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) `).Subtract("Population", 1)
+	//utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists("MaxPopulation") and Population<MaxPopulation`).Subtract("Population", 1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) `).Subtract("Population", 1)
 
 	err = utx.Execute()
 	if err != nil {
@@ -1125,7 +1106,7 @@ func TestQueryPopUpdateWhere23(t *testing.T) {
 		t.Logf("xxxx error: %s", err.Error())
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -1143,13 +1124,11 @@ func TestQueryPopUpdateWhere23(t *testing.T) {
 
 func TestQueryPopUpdateWhere23a(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1157,7 +1136,7 @@ func TestQueryPopUpdateWhere23a(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
@@ -1170,8 +1149,8 @@ func TestQueryPopUpdateWhere23a(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	//utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists("MaxPopulation") and Population<MaxPopulation`).Subtract("Population", 1)
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_not_exists(MaxPopulation) `).Subtract("Population", 1)
+	//utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists("MaxPopulation") and Population<MaxPopulation`).Subtract("Population", 1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_not_exists(MaxPopulation) `).Subtract("Population", 1)
 
 	err = utx.Execute()
 	if err != nil {
@@ -1181,7 +1160,7 @@ func TestQueryPopUpdateWhere23a(t *testing.T) {
 		//	t.Logf("xxxx error: %s", err.Error())
 	}
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -1228,13 +1207,11 @@ func TestQueryPopUpdateWhere23a(t *testing.T) {
 
 func TestQueryPopUpdateWhere24(t *testing.T) {
 
-	var tbl tbl.Name = "GoUnitTest"
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1242,7 +1219,7 @@ func TestQueryPopUpdateWhere24(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
@@ -1255,8 +1232,8 @@ func TestQueryPopUpdateWhere24(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	//	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>20000`).Subtract("Population", 1)
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>20000`).Subtract("Population", 1)
 	err = utx.Execute()
 	if err != nil {
 		if strings.Index(err.Error(), "ConditionalCheckFailedException") == -1 {
@@ -1274,7 +1251,7 @@ func TestQueryPopUpdateWhere24(t *testing.T) {
 	// 	}
 	// }
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -1293,15 +1270,13 @@ func TestQueryPopUpdateWhere24(t *testing.T) {
 func TestQueryPopUpdateWhere25(t *testing.T) {
 
 	var (
-		tbl    tbl.Name = "GoUnitTest"
-		plimit          = 20000
+		plimit = 20000
 	)
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1309,7 +1284,7 @@ func TestQueryPopUpdateWhere25(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
@@ -1322,8 +1297,8 @@ func TestQueryPopUpdateWhere25(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	//	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>?`).Values(plimit).Subtract("Population", 1)
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>?`).Values(plimit).Subtract("Population", 1)
 	err = utx.Execute()
 	if err != nil {
 		if strings.Index(err.Error(), "ConditionalCheckFailedException") == -1 {
@@ -1341,7 +1316,7 @@ func TestQueryPopUpdateWhere25(t *testing.T) {
 	// 	}
 	// }
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -1360,15 +1335,13 @@ func TestQueryPopUpdateWhere25(t *testing.T) {
 func TestQueryPopUpdateWhere26(t *testing.T) {
 
 	var (
-		tbl    tbl.Name = "GoUnitTest"
-		plimit          = 20000
+		plimit = 20000
 	)
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1376,7 +1349,7 @@ func TestQueryPopUpdateWhere26(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
@@ -1389,8 +1362,8 @@ func TestQueryPopUpdateWhere26(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	//	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and (Population>? or Population<?)`).Values(plimit).Subtract("Population", 1)
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and (Population>? or Population<?)`).Values(plimit).Subtract("Population", 1)
 	err = utx.Execute()
 	if err != nil {
 		if strings.Index(err.Error(), "expected 2 bind variables in Values, got 1") == -1 {
@@ -1408,7 +1381,7 @@ func TestQueryPopUpdateWhere26(t *testing.T) {
 	// 	}
 	// }
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -1427,16 +1400,14 @@ func TestQueryPopUpdateWhere26(t *testing.T) {
 func TestQueryPopUpdateWhere28(t *testing.T) {
 
 	var (
-		tbl     tbl.Name = "GoUnitTest"
-		plimit           = 20000000
-		plimit2          = 100000
+		plimit  = 20000000
+		plimit2 = 100000
 	)
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1444,7 +1415,7 @@ func TestQueryPopUpdateWhere28(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
@@ -1457,8 +1428,8 @@ func TestQueryPopUpdateWhere28(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	//	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and (Population>? or Population<?)`).Values(plimit, plimit2).Subtract("Population", 1)
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and (Population>? or Population<?)`).Values(plimit, plimit2).Subtract("Population", 1)
 	err = utx.Execute()
 	if err != nil {
 		if strings.Index(err.Error(), "ConditionalCheckFailedException") == -1 {
@@ -1478,7 +1449,7 @@ func TestQueryPopUpdateWhere28(t *testing.T) {
 	// 	}
 	// }
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -1498,16 +1469,14 @@ func TestQueryPopUpdateWhere28(t *testing.T) {
 func TestQueryPopUpdateWhere29(t *testing.T) {
 
 	var (
-		tbl     tbl.Name = "GoUnitTest"
-		plimit           = 2000000
-		plimit2          = 200000
+		plimit  = 2000000
+		plimit2 = 200000
 	)
 	type City struct {
 		Pop int `dynamodbav:"Population"`
 	}
 	var wpEnd sync.WaitGroup
 
-	// context is passed to all underlying mysql methods which will release db resources on main termination
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1515,7 +1484,7 @@ func TestQueryPopUpdateWhere29(t *testing.T) {
 
 	var sk City
 
-	txg := NewQuery("pop", tbl)
+	txg := NewQuery("pop", gtbl)
 
 	txg.Select(&sk).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
@@ -1528,8 +1497,8 @@ func TestQueryPopUpdateWhere29(t *testing.T) {
 
 	utx := New("IXFlag")
 	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
-	//	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
-	utx.NewUpdate(tbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and (Population>? or Population<?)`).Values(plimit, plimit2).Decrement("Population")
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and (Population>? or Population<?)`).Values(plimit, plimit2).Decrement("Population")
 	err = utx.Execute()
 	if err != nil {
 
@@ -1547,7 +1516,7 @@ func TestQueryPopUpdateWhere29(t *testing.T) {
 	// 	}
 	// }
 	var sk2 City
-	txg = NewQuery("pop", tbl)
+	txg = NewQuery("pop", gtbl)
 	txg.Select(&sk2).Key("PKey", 1001).Key("SortK", "Sydney")
 	err = txg.Execute()
 
@@ -1559,6 +1528,69 @@ func TestQueryPopUpdateWhere29(t *testing.T) {
 
 	if sk2.Pop != sk.Pop-1 {
 		t.Fail()
+	}
+
+}
+
+func TestUpdateList(t *testing.T) {
+
+	listinput := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+	utx := New("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewInsert(gtbl).Key("PKey", 2500).Key("SortK", "AAA")
+	utx.NewUpdate(gtbl).Key("PKey", 2500).Key("SortK", "AAA").AddMember("ListT", listinput)
+	err = utx.Execute()
+
+	if err != nil {
+		if !strings.Contains(err.Error(), "The provided expression refers to an attribute that does not exist in the item") {
+
+			t.Logf("Error: in Execute of PreTestUpdateList %s", err)
+			t.Fatal()
+		}
+	}
+}
+
+func TestPutList(t *testing.T) {
+
+	listinput := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+	type output struct {
+		ListT []int64
+	}
+
+	var out_ output
+
+	utx := New("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewInsert(gtbl).Key("PKey", 2500).Key("SortK", "AAA").AddMember("ListT", listinput).Add("cond", 5)
+	err = utx.Execute()
+
+	if err != nil {
+		t.Logf("Error: in Execute of PreTestPutList %s", err)
+		t.Fatal()
+	}
+
+	q := NewQuery("qlablel", gtbl)
+	q.Select(&out_).Key("PKey", 2500).Key("SortK", "AAA")
+	err := q.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of qlabel %s", err)
+	}
+
+	if len(out_.ListT) != 10 {
+		t.Errorf("Expected len of 10 got %d", len(out_.ListT))
+	}
+
+	utx2 := New("PostTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx2.NewDelete(gtbl).Key("PKey", 2500).Key("SortK", "AAA") //.Where(`attribute_exists(MaxPopulation)`)
+	err = utx2.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of PostTestPutList %s", err)
 	}
 
 }

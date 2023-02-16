@@ -367,24 +367,8 @@ func (h *TxHandle) MakeBatch() error {
 
 // NewMutation2 creates.a new mutation of type Insert, Update etc that is passed in.
 // used  in attach-mrege/execute/propagationTarget.go
-func (h *TxHandle) NewMutation2(table tbl.Name, pk uuid.UID, sk string, opr mut.StdMut) *mut.Mutation {
-	keys := []key.Key{key.Key{"PKey", pk}, key.Key{"SortK", sk}}
-	// validate merge keys with actual table keys
-	tableKeys, err := h.dbHdl.GetTableKeys(h.ctx, string(table))
-	if err != nil {
-		h.addErr(fmt.Errorf("Error in finding table keys for table %q: %w", table, err))
-		return nil
-	}
-
-	m := mut.NewMutation(table, opr)
-	m.AddTableKeys(tableKeys)
-	m.AddKeys(keys)
-	h.add(m)
-	return m
-}
-
-// func (h *TxHandle) NewMutation(table tbl.Name, opr mut.StdMut, keys []key.Key) *mut.Mutation {
-// 	//m := mut.NewMutation(table, opr, keys)
+// func (h *TxHandle) NewMutation2(table tbl.Name, pk uuid.UID, sk string, opr mut.StdMut) *mut.Mutation {
+// 	keys := []key.Key{key.Key{"PKey", pk}, key.Key{"SortK", sk}}
 // 	// validate merge keys with actual table keys
 // 	tableKeys, err := h.dbHdl.GetTableKeys(h.ctx, string(table))
 // 	if err != nil {
@@ -398,6 +382,22 @@ func (h *TxHandle) NewMutation2(table tbl.Name, pk uuid.UID, sk string, opr mut.
 // 	h.add(m)
 // 	return m
 // }
+
+func (h *TxHandle) NewMutation(table tbl.Name, opr mut.StdMut, keys []key.Key) *mut.Mutation {
+	//m := mut.NewMutation(table, opr, keys)
+	// validate merge keys with actual table keys
+	tableKeys, err := h.dbHdl.GetTableKeys(h.ctx, string(table))
+	if err != nil {
+		h.addErr(fmt.Errorf("Error in finding table keys for table %q: %w", table, err))
+		return nil
+	}
+
+	m := mut.NewMutation(table, opr)
+	m.AddTableKeys(tableKeys)
+	m.AddKeys(keys)
+	h.add(m)
+	return m
+}
 
 func (h *TxHandle) NewInsert(table tbl.Name) *mut.Mutation {
 	m := mut.NewInsert(table)
@@ -695,7 +695,7 @@ func (h *TxHandle) MergeMutation(table tbl.Name, opr mut.StdMut, keys []key.Key)
 	h.am.AddTableKeys(tableKeys) // added 27 Dec 2022
 	h.am.AddKeys(keys)           // added 27 Dec 2022
 
-	h.sm = h.findSourceMutation2(table, mergeKeys)
+	h.sm = h.findSourceMutation(table, mergeKeys)
 	if h.sm == nil {
 		h.add(h.am)
 	}
@@ -703,26 +703,26 @@ func (h *TxHandle) MergeMutation(table tbl.Name, opr mut.StdMut, keys []key.Key)
 	return h
 }
 
-func (h *TxHandle) findSourceMutation(table tbl.Name, pk uuid.UID, sk string) *mut.Mutation {
+// func (h *TxHandle) findSourceMutation(table tbl.Name, pk uuid.UID, sk string) *mut.Mutation {
+
+// 	// cycle through batch of mutation batches .
+// 	for _, bm := range h.batch {
+
+// 		sm := bm.FindMutation(table, pk, sk)
+// 		if sm != nil {
+// 			return sm
+// 		}
+// 	}
+// 	// search active batch if source mutation not found.
+// 	return h.m.FindMutation(table, pk, sk)
+// }
+
+func (h *TxHandle) findSourceMutation(table tbl.Name, keys []key.MergeKey) *mut.Mutation {
 
 	// cycle through batch of mutation batches .
 	for _, bm := range h.batch {
 
-		sm := bm.FindMutation(table, pk, sk)
-		if sm != nil {
-			return sm
-		}
-	}
-	// search active batch if source mutation not found.
-	return h.m.FindMutation(table, pk, sk)
-}
-
-func (h *TxHandle) findSourceMutation2(table tbl.Name, keys []key.MergeKey) *mut.Mutation {
-
-	// cycle through batch of mutation batches .
-	for _, bm := range h.batch {
-
-		sm, err := bm.FindMutation2(table, keys)
+		sm, err := bm.FindMutation(table, keys)
 		if err != nil {
 			h.addErr(err)
 		}
@@ -731,7 +731,7 @@ func (h *TxHandle) findSourceMutation2(table tbl.Name, keys []key.MergeKey) *mut
 		}
 	}
 	// search active batch if source mutation not found.
-	s, err := h.m.FindMutation2(table, keys)
+	s, err := h.m.FindMutation(table, keys)
 	if err != nil {
 		h.addErr(err)
 	}
@@ -791,7 +791,7 @@ func (h *TxHandle) GetMergedMutation(table tbl.Name, keys []key.Key) (*mut.Mutat
 	}
 	// cycle through mutation batches.
 	for _, bm := range h.batch {
-		sm, err := bm.FindMutation2(table, mergeKeys)
+		sm, err := bm.FindMutation(table, mergeKeys)
 		if err != nil {
 			h.addErr(err)
 			return nil, err
@@ -801,7 +801,7 @@ func (h *TxHandle) GetMergedMutation(table tbl.Name, keys []key.Key) (*mut.Mutat
 		}
 	}
 	// search active batch if source mutation not found.
-	s, err := h.m.FindMutation2(table, mergeKeys)
+	s, err := h.m.FindMutation(table, mergeKeys)
 	if err != nil {
 		h.addErr(err)
 		return nil, err

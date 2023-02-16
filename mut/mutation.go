@@ -37,6 +37,8 @@ const (
 	Delete
 	Update // update performing "set =" operation etc
 	TruncateTbl
+)
+const (
 	//
 	Set Modifier = iota + 1
 	// Inc             // set col = col + 1 //TODO: deprecated - performed by Add, Substract
@@ -53,6 +55,8 @@ const (
 	// IsKey    // Key(a,v) used in query & update mode. Alternative to registering table/index and its keys. TODO: deprecated - GoGraph determines from DD
 	// IsFilter // Filter(a,v)
 	//
+)
+const (
 	AttrExists Cond = iota
 	AttrNotExists
 )
@@ -685,6 +689,7 @@ func (im *Mutation) Submit(t interface{}) *Mutation {
 
 	return im
 }
+
 func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *Mutation {
 
 	// Parameterised names based on spanner's. Spanner uses a parameter name based on attribute name starting with "@". Params can be ignored in other dbs.
@@ -707,18 +712,35 @@ func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *
 	// (the advantage of hardwiring attribute names is it makes for a generic solution that suits both Dynamodb & Spanner).
 	// default behaviour is to append value to end of array
 	// TODO: come up with generic solution for both Dynamodb & Spanner - probably not possible so make use of conditional compilation.
-	m.Array = IsArray(value)
+	if IsArray(value) {
+
+		m.Array = true
+		m.Mod = Append
+		if len(mod) > 0 {
+			switch mod[0] {
+			case Set:
+				m.Mod = Set
+			case Append:
+			default:
+				im.addErr(fmt.Errorf("Error: %q modifier not suitable array type attribute", attr))
+			}
+		}
+
+		im.ms = append(im.ms, m)
+
+		return im
+	}
 
 	// check attr is key
 	var (
-		isKey bool
+		isKey_ bool
 	)
 
 	//tableKeys are correctly ordered based on table def
 	for i, kk := range im.keys {
 		//
 		if strings.ToUpper(kk.Name) == strings.ToUpper(attr) {
-			isKey = true
+			isKey_ = true
 			if i == 0 {
 				m.keyTy = Partition
 			}
@@ -733,7 +755,7 @@ func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *
 	// Must specifiy IsFilter to be used in where clause or filter expression, otherwise will be used to Set in a Update mutation.
 	switch len(mod) {
 	case 0:
-		if isKey {
+		if isKey_ {
 			m.Mod = IsKey
 		} else {
 			if im.opr == Delete {
@@ -750,40 +772,29 @@ func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *
 			}
 			switch m.Mod {
 			case IsKey:
-				if !isKey {
+				if !isKey_ {
 					im.addErr(fmt.Errorf("Error: %q is not a key in table", attr))
 				}
 			case IsFilter:
-				if isKey {
+				if isKey_ {
 					im.addErr(fmt.Errorf("Error: Specified %q is a Key not a filter", attr))
 				}
 			case Append:
-				if isKey {
+				if isKey_ {
 					im.addErr(fmt.Errorf("Error: Specified %q is a Key, cannot use Append modifier", attr))
 				}
 			case Remove:
-				if isKey {
+				if isKey_ {
 					im.addErr(fmt.Errorf("Error:  Specified %q is a Key, cannot use Remove modifier", attr))
 				}
 			case Literal:
-				if isKey {
+				if isKey_ {
 					im.addErr(fmt.Errorf("Error:  Specified %q is a Key, cannot use Literal modifier", attr))
 				}
 			}
 		}
 	default:
 		im.addErr(fmt.Errorf("Error in AddMember for %q. Cannot specifty more than one modifier", attr))
-	}
-
-	if m.Array {
-		// default operation for arrays is append.
-		// However, if array attribute does not exist Dynamo generates error: ValidationException: The provided expression refers to an attribute that does not exist in the item
-		// in such cases you must Put
-		// Conclusion: for the initial load the default is Put - this will overwrite what is in Nd which for the initial load will by a single NULL entry.
-		// this is good as it means the the index entries in Nd match those in the scalar propagation atributes.
-		// After the initial load the default should be set to Append as all items exist and the associated array attributes exist in those items, so appending will succeed.
-		// Alternative solution is to add a update condition that test for attribute_exists(PKey) - fails and uses PUT otherwise Updates.
-		m.Mod = Append
 	}
 
 	im.ms = append(im.ms, m)
@@ -894,68 +905,68 @@ func (m *Mutation) AddKeys(keys []key.Key) {
 }
 
 // FindMutation searches the associated batch of mutations based on argument values.
-func (bm *Mutations) FindMutation(table tbl.Name, pk uuid.UID, sk string) *Mutation {
-	var (
-		ok               bool
-		sm               *Mutation
-		match            int
-		pkMatch, skMatch bool
-	)
-	for _, sm_ := range *bm {
+// func (bm *Mutations) FindMutation(table tbl.Name, pk uuid.UID, sk string) *Mutation {
+// 	var (
+// 		ok               bool
+// 		sm               *Mutation
+// 		match            int
+// 		pkMatch, skMatch bool
+// 	)
+// 	for _, sm_ := range *bm {
 
-		if sm, ok = sm_.(*Mutation); !ok {
-			continue
-		}
-		if sm.opr == Merge {
-			panic(fmt.Errorf("Merge mutation cannot be used with a MergeMuatation method"))
-		}
-		if sm.tbl != table || !(sm.opr == Insert || sm.opr == Update) {
-			continue
-		}
-		match = 0
-		pkMatch, skMatch = false, false
+// 		if sm, ok = sm_.(*Mutation); !ok {
+// 			continue
+// 		}
+// 		if sm.opr == Merge {
+// 			panic(fmt.Errorf("Merge mutation cannot be used with a MergeMuatation method"))
+// 		}
+// 		if sm.tbl != table || !(sm.opr == Insert || sm.opr == Update) {
+// 			continue
+// 		}
+// 		match = 0
+// 		pkMatch, skMatch = false, false
 
-		// cycle thru members of source mutation.
-		for _, attr := range sm.ms {
+// 		// cycle thru members of source mutation.
+// 		for _, attr := range sm.ms {
 
-			switch attr.Name {
-			case "PKey":
-				match++
-				if u, ok := attr.Value.(uuid.UID); ok {
+// 			switch attr.Name {
+// 			case "PKey":
+// 				match++
+// 				if u, ok := attr.Value.(uuid.UID); ok {
 
-					if bytes.Equal(u, pk) {
-						pkMatch = true
-					}
+// 					if bytes.Equal(u, pk) {
+// 						pkMatch = true
+// 					}
 
-				} else if u, ok := attr.Value.([]byte); ok {
-					if bytes.Equal(u, pk) {
-						pkMatch = true
-					}
-				}
+// 				} else if u, ok := attr.Value.([]byte); ok {
+// 					if bytes.Equal(u, pk) {
+// 						pkMatch = true
+// 					}
+// 				}
 
-			case "SortK":
-				match++
-				if vsk, ok := attr.Value.(string); !ok {
-					panic(fmt.Errorf("FindMutation iconcistency. Expected string for sortk interface value got %T", attr.Value))
-				} else if vsk == sk {
-					skMatch = true
-				}
-			}
-			if match == 2 {
-				if pkMatch && skMatch {
-					return sm
-				} else {
-					break
-				}
-			}
-		}
+// 			case "SortK":
+// 				match++
+// 				if vsk, ok := attr.Value.(string); !ok {
+// 					panic(fmt.Errorf("FindMutation iconcistency. Expected string for sortk interface value got %T", attr.Value))
+// 				} else if vsk == sk {
+// 					skMatch = true
+// 				}
+// 			}
+// 			if match == 2 {
+// 				if pkMatch && skMatch {
+// 					return sm
+// 				} else {
+// 					break
+// 				}
+// 			}
+// 		}
 
-	}
-	return nil
-}
+// 	}
+// 	return nil
+// }
 
 // FindMutation searches the associated batch of mutations based on key values.
-func (bm *Mutations) FindMutation2(table tbl.Name, keys []key.MergeKey) (*Mutation, error) {
+func (bm *Mutations) FindMutation(table tbl.Name, keys []key.MergeKey) (*Mutation, error) {
 	var (
 		ok    bool
 		sm    *Mutation

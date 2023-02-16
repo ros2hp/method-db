@@ -1,6 +1,3 @@
-//go:build dynamodb
-// +build dynamodb
-
 package mut
 
 import (

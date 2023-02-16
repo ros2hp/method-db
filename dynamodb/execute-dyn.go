@@ -238,24 +238,14 @@ func retryOp(err error, tag string, cf ...aws.Config) bool {
 // All types in GoGraph are known at compile time.
 func convertBS2List(values map[string]types.AttributeValue, names map[string]string) map[string]types.AttributeValue {
 
-	var s strings.Builder
+	for k, _ := range names { // map[string]string  [":0"]"PKey", [":2"]"SortK"
 
-	for k, v := range names { // map[string]string  [":0"]"PKey", [":2"]"SortK"
-		switch v {
-		//safe to hardwire in attribute name as all required List binaries are known at compile time.
-		case "Nd", "LB":
-			s.WriteByte(':')
-			s.WriteByte(k[1])
-			// check if BS is used and then convert if it is
-
-			if bs, ok := values[s.String()].(*types.AttributeValueMemberBS); ok {
-				nl := make([]types.AttributeValue, len(bs.Value), len(bs.Value))
-				for i, b := range bs.Value {
-					nl[i] = &types.AttributeValueMemberB{Value: b}
-				}
-				values[s.String()] = &types.AttributeValueMemberL{Value: nl}
+		if bs, ok := values[k].(*types.AttributeValueMemberBS); ok {
+			nl := make([]types.AttributeValue, len(bs.Value), len(bs.Value))
+			for i, b := range bs.Value {
+				nl[i] = &types.AttributeValueMemberB{Value: b}
 			}
-			s.Reset()
+			values[k] = &types.AttributeValueMemberL{Value: nl}
 		}
 	}
 	return values
@@ -323,8 +313,10 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 					upd = upd.Set(expression.Name(col.Name), expression.Value(col.Value))
 				}
 
-			} else { // Append
+			} else {
 
+				// note ListAppend only suitable for List types. Also, being an Update the attribute must exist to use ListAppend
+				//    if it doesn't exist use ListAppend(if_not_exists(col.Name,<emptyArray>)), col.Value)
 				if i == 0 {
 					upd = expression.Set(expression.Name(col.Name), expression.ListAppend(expression.Name(col.Name), expression.Value(col.Value)))
 				} else {
@@ -377,6 +369,7 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 		av[v.Name] = marshalAvUsingValue(v.Value)
 	}
 	var update *types.Update
+
 	// Where expression defined
 	if len(m.GetWhere()) > 0 {
 
@@ -424,10 +417,85 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 	put := &types.Put{
 		Item:      av,
 		TableName: aws.String(m.GetTable()),
+		//TODO - Process Where() into
+		// ConditionExpression *string
+		// ExpressionAttributeNames map[string]string
+		//ExpressionAttributeValues map[string]AttributeValue
 	}
-	//
+
 	twi := &types.TransactWriteItem{Put: put}
 
+	return twi, nil
+
+}
+
+func txDelete(m *mut.Mutation) (*types.TransactWriteItem, error) {
+
+	var delete *types.Delete
+
+	av := make(map[string]types.AttributeValue)
+	exprNames := make(map[string]string)
+	exprValues := make(map[string]types.AttributeValue)
+
+	// generate key AV
+	for _, v := range m.GetKeys() {
+		if v.IsPartitionKey() && v.GetOprStr() != "EQ" {
+			return nil, newDBExprErr("txUpdate", "", "", fmt.Errorf(`Equality operator for Dynamodb Partition Key must be "EQ"`))
+		}
+		av[v.Name] = marshalAvUsingValue(v.Value)
+	}
+	// Where expression defined
+	if len(m.GetWhere()) > 0 {
+
+		exprCond, binds := buildConditionExpr(m.GetWhere(), exprNames, exprValues)
+
+		if binds != len(m.GetValues()) {
+			return nil, fmt.Errorf("expected %d bind variables in Values, got %d", binds, len(m.GetValues()))
+		}
+
+		for i, v := range m.GetValues() {
+			ii := i + 1
+			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(v)
+		}
+
+		fmt.Printf("exprName %#v\n", exprNames)
+		fmt.Printf("exprValues %#v\n", exprValues)
+
+		if len(exprNames) == 0 {
+			delete = &types.Delete{
+				Key:                 av,
+				ConditionExpression: aws.String(exprCond),
+				TableName:           aws.String(m.GetTable()),
+			}
+		} else {
+
+			if len(exprValues) == 0 {
+				delete = &types.Delete{
+					Key:                      av,
+					ExpressionAttributeNames: exprNames,
+					ConditionExpression:      aws.String(exprCond),
+					TableName:                aws.String(m.GetTable()),
+				}
+			} else {
+				delete = &types.Delete{
+					Key:                       av,
+					ExpressionAttributeNames:  exprNames,
+					ExpressionAttributeValues: exprValues,
+					ConditionExpression:       aws.String(exprCond),
+					TableName:                 aws.String(m.GetTable()),
+				}
+			}
+		}
+
+	} else {
+
+		delete = &types.Delete{
+			Key:       av,
+			TableName: aws.String(m.GetTable()),
+		}
+	}
+
+	twi := &types.TransactWriteItem{Delete: delete}
 	return twi, nil
 
 }
@@ -451,6 +519,14 @@ func crTx(m *mut.Mutation, opr mut.StdMut) ([]types.TransactWriteItem, error) {
 			return nil, err
 		}
 		return []types.TransactWriteItem{*put}, nil
+
+	case mut.Delete:
+
+		del, err := txDelete(m)
+		if err != nil {
+			return nil, err
+		}
+		return []types.TransactWriteItem{*del}, nil
 
 	case mut.Merge:
 		// use in Dynamodb only when list_append or mut.Add on an attribute is required, otherwise a PutItem will implement the merge as a single api call.
@@ -719,7 +795,7 @@ type txWrite struct {
 
 func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mutations, tag string, api db.API) error {
 
-	// handle as a Transaction
+	// handle as a Transaction, although maybe implemented using non-transaction API if api is StdAPI
 
 	// txwio, err := TransactWriteItems(TransactWriteItemsInput)
 	//

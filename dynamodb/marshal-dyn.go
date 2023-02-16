@@ -123,6 +123,26 @@ func marshalAvUsingValue(val interface{}) types.AttributeValue {
 		}
 		return &types.AttributeValueMemberL{Value: lb}
 
+	case []int:
+		// represented as List of int64
+
+		lb := make([]types.AttributeValue, len(x), len(x))
+		for i, v := range x {
+			s := strconv.FormatInt(int64(v), 10)
+			lb[i] = &types.AttributeValueMemberN{Value: s}
+		}
+		return &types.AttributeValueMemberL{Value: lb}
+
+	case []int32:
+		// represented as List of int64
+
+		lb := make([]types.AttributeValue, len(x), len(x))
+		for i, v := range x {
+			s := strconv.FormatInt(int64(v), 10)
+			lb[i] = &types.AttributeValueMemberN{Value: s}
+		}
+		return &types.AttributeValueMemberL{Value: lb}
+
 	case []bool:
 		lb := make([]types.AttributeValue, len(x), len(x))
 		for i, v := range x {
