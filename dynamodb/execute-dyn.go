@@ -319,6 +319,7 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 				//    if it doesn't exist use ListAppend(if_not_exists(col.Name,<emptyArray>)), col.Value)
 				if i == 0 {
 					upd = expression.Set(expression.Name(col.Name), expression.ListAppend(expression.Name(col.Name), expression.Value(col.Value)))
+					//	upd = expression.Set(expression.Name(col.Name), expression.ListAppend(expression.Name(col.Name).IfNotExists(expression.Value(5)), expression.Value(col.Value)))
 				} else {
 					upd = upd.Set(expression.Name(col.Name), expression.ListAppend(expression.Name(col.Name), expression.Value(col.Value)))
 				}
@@ -410,21 +411,80 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
 func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
-	av, err := marshalMutation(m)
+	var (
+		err error
+		put *types.Put
+	)
+	av := make(map[string]types.AttributeValue)
+	exprNames := make(map[string]string)
+	exprValues := make(map[string]types.AttributeValue)
+
+	if m.GetSubmit() != nil {
+		av, err = attributevalue.MarshalMap(m.GetSubmit())
+	} else {
+		av, err = marshalMutation(m)
+	}
 	if err != nil {
 		return nil, err
 	}
-	put := &types.Put{
-		Item:      av,
-		TableName: aws.String(m.GetTable()),
-		//TODO - Process Where() into
-		// ConditionExpression *string
-		// ExpressionAttributeNames map[string]string
-		//ExpressionAttributeValues map[string]AttributeValue
+	// put = &types.Put{
+	// 	Item:      av,
+	// 	TableName: aws.String(m.GetTable()),
+	// 	//TODO - Process Where() into
+	// 	// ConditionExpression *string
+	// 	// ExpressionAttributeNames map[string]string
+	// 	//ExpressionAttributeValues map[string]AttributeValue
+	// }
+
+	// Where expression defined
+	if len(m.GetWhere()) > 0 {
+
+		exprCond, binds := buildConditionExpr(m.GetWhere(), exprNames, exprValues)
+
+		if binds != len(m.GetValues()) {
+			return nil, fmt.Errorf("expected %d bind variables in Values, got %d", binds, len(m.GetValues()))
+		}
+
+		for i, v := range m.GetValues() {
+			ii := i + 1
+			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(v)
+		}
+
+		if len(exprNames) == 0 {
+			put = &types.Put{
+				Item:                av,
+				ConditionExpression: aws.String(exprCond),
+				TableName:           aws.String(m.GetTable()),
+			}
+		} else {
+
+			if len(exprValues) == 0 {
+
+				put = &types.Put{
+					Item:                     av,
+					ExpressionAttributeNames: exprNames,
+					ConditionExpression:      aws.String(exprCond),
+					TableName:                aws.String(m.GetTable()),
+				}
+			} else {
+				put = &types.Put{
+					Item:                      av,
+					ExpressionAttributeNames:  exprNames,
+					ExpressionAttributeValues: exprValues,
+					ConditionExpression:       aws.String(exprCond),
+					TableName:                 aws.String(m.GetTable()),
+				}
+			}
+		}
+
+	} else {
+
+		put = &types.Put{
+			Item:      av,
+			TableName: aws.String(m.GetTable()),
+		}
 	}
-
 	twi := &types.TransactWriteItem{Put: put}
-
 	return twi, nil
 
 }
@@ -457,9 +517,6 @@ func txDelete(m *mut.Mutation) (*types.TransactWriteItem, error) {
 			ii := i + 1
 			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(v)
 		}
-
-		fmt.Printf("exprName %#v\n", exprNames)
-		fmt.Printf("exprValues %#v\n", exprValues)
 
 		if len(exprNames) == 0 {
 			delete = &types.Delete{
@@ -1024,9 +1081,12 @@ func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mut
 					if op.Put != nil {
 
 						pii := &dynamodb.PutItemInput{
-							Item:                   op.Put.Item,
-							TableName:              op.Put.TableName,
-							ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes,
+							Item:                      op.Put.Item,
+							TableName:                 op.Put.TableName,
+							ExpressionAttributeNames:  op.Put.ExpressionAttributeNames,
+							ExpressionAttributeValues: op.Put.ExpressionAttributeValues,
+							ConditionExpression:       op.Put.ConditionExpression,
+							ReturnConsumedCapacity:    types.ReturnConsumedCapacityIndexes,
 						}
 
 						t0 := time.Now()

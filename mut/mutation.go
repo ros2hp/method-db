@@ -51,6 +51,10 @@ const (
 	Remove   // remove attribute
 	IsKey    // more a type of attribute than a modifier - but keep it here..
 	IsFilter // more a type of attribute than a modifier - but keep it here
+	// Dynamodb: Methoddb will marshal all slices as Dynamodb List. These modifiers will override attribute to be a Set data type.
+	DynBS // treat as a Binary Set, SS String Set, NS Number Set
+	DynSS
+	DynNS
 	//
 	// IsKey    // Key(a,v) used in query & update mode. Alternative to registering table/index and its keys. TODO: deprecated - GoGraph determines from DD
 	// IsFilter // Filter(a,v)
@@ -240,7 +244,9 @@ type Option struct {
 // }
 
 type Mutation struct {
-	ms  []Member
+	ms     []Member    // AddMember - adds attribute mutation
+	submit interface{} // use &struct{} definition to define []member. For Dynamodb, this is passed to MarshalMap, or MarshallListofMap
+	//
 	tag string // label for mutation. Potentially useful as a source of aggregation for performance statistics.
 	//cd *condition
 	// Where, Values method
@@ -641,57 +647,60 @@ func (im *Mutation) Remove(attr string) *Mutation {
 // }
 
 // Submit defines a mutation using struct tags with tag names emulating each mutation method and attribute mutation method
-func (im *Mutation) Submit(t interface{}) *Mutation {
+// func (im *Mutation) Submit(t interface{}) *Mutation {
 
-	if im.err != nil {
-		return im
-	}
+// 	if im.err != nil {
+// 		return im
+// 	}
 
-	f := reflect.TypeOf(t) // *[]struct
-	if f.Kind() != reflect.Ptr {
-		panic(fmt.Errorf("Fetch argument: expected a pointer, got a %s", f.Kind()))
-	}
-	//save addressable component of interface argument
+// 	f := reflect.TypeOf(t) // *[]struct
+// 	if f.Kind() != reflect.Ptr {
+// 		panic(fmt.Errorf("Fetch argument: expected a pointer, got a %s", f.Kind()))
+// 	}
+// 	//save addressable component of interface argument
 
-	s := f.Elem()
-	sv := reflect.Indirect(reflect.ValueOf(t))
+// 	s := f.Elem()
+// 	sv := reflect.Indirect(reflect.ValueOf(t))
 
-	switch s.Kind() {
-	case reflect.Struct:
-		// used in GetItem (single row select)
-		for i := 0; i < s.NumField(); i++ {
-			sf := s.Field(i) // StructField
-			fv := sv.Field(i)
-			if name, ok := sf.Tag.Lookup("mdb"); ok {
-				switch strings.ToLower(name) {
-				case "key":
-					im.Key(sf.Name, fv.Interface())
-				case "add":
-					im.Add(sf.Name, fv.Interface())
-				case "subtract":
-					im.Subtract(sf.Name, fv.Interface())
-				case "multiply":
-					im.Multiply(sf.Name, fv.Interface())
-				case "filter":
-					im.Filter(sf.Name, fv.Interface())
-				case "append":
-					im.Append(sf.Name, fv.Interface())
-				case "remove":
-					im.Remove(sf.Name)
-				default:
-					im.addErr(fmt.Errorf("Submit(): unsupported struct tag value: %q", name))
-				}
-			}
-		}
-	default:
-		im.addErr(fmt.Errorf("Submit(): expected a pointer to struct got pointer to %s", s.Kind()))
-	}
+// 	switch s.Kind() {
+// 	case reflect.Struct:
+// 		// used in GetItem (single row select)
+// 		for i := 0; i < s.NumField(); i++ {
+// 			sf := s.Field(i) // StructField
+// 			fv := sv.Field(i)
+// 			if name, ok := sf.Tag.Lookup("mdb"); ok {
+// 				switch strings.ToLower(name) {
+// 				case "key":
+// 					im.Key(sf.Name, fv.Interface())
+// 				case "add":
+// 					im.Add(sf.Name, fv.Interface())
+// 				case "subtract":
+// 					im.Subtract(sf.Name, fv.Interface())
+// 				case "multiply":
+// 					im.Multiply(sf.Name, fv.Interface())
+// 				case "filter":
+// 					im.Filter(sf.Name, fv.Interface())
+// 				case "append":
+// 					im.Append(sf.Name, fv.Interface())
+// 				case "remove":
+// 					im.Remove(sf.Name)
+// 				default:
+// 					im.addErr(fmt.Errorf("Submit(): unsupported struct tag value: %q", name))
+// 				}
+// 			}
+// 		}
+// 	default:
+// 		im.addErr(fmt.Errorf("Submit(): expected a pointer to struct got pointer to %s", s.Kind()))
+// 	}
 
-	return im
-}
+// 	return im
+// }
 
 func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *Mutation {
 
+	if im.submit != nil {
+		panic(fmt.Errorf("Cannot us mutation methods with Submit()"))
+	}
 	// Parameterised names based on spanner's. Spanner uses a parameter name based on attribute name starting with "@". Params can be ignored in other dbs.
 	// For other database, such as MySQL, will need to convert from Spanner's repesentation to relevant database during query formulation in the Execute() phase.
 	p := strings.Replace(attr, "#", "_", -1)
@@ -800,6 +809,21 @@ func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *
 	im.ms = append(im.ms, m)
 
 	return im
+}
+
+func (im *Mutation) Submit(in interface{}) *Mutation {
+
+	if len(im.ms) > 0 {
+		panic(fmt.Errorf("Cannot use Submit() with other mutation methods"))
+	}
+
+	im.submit = in
+
+	return im
+}
+
+func (im *Mutation) GetSubmit() interface{} {
+	return im.submit
 }
 
 // func (im *Mutation) AddMember2(attr string, value interface{}, opr ...Modifier) *Mutation {

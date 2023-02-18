@@ -1594,3 +1594,316 @@ func TestPutList(t *testing.T) {
 	}
 
 }
+
+func TestPutUpdateList(t *testing.T) {
+
+	listinput := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+	type output struct {
+		ListT []int64
+	}
+
+	var out_ output
+
+	utx := New("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewInsert(gtbl).Key("PKey", 2500).Key("SortK", "AAA").AddMember("ListT", listinput).Add("cond", 5)
+	utx.NewUpdate(gtbl).Key("PKey", 2500).Key("SortK", "AAA").AddMember("ListT", listinput)
+	err = utx.Execute()
+
+	if err != nil {
+		t.Logf("Error: in Execute of Pre PutUpdateList %s", err)
+		t.Fatal()
+	}
+
+	q := NewQuery("qlablel", gtbl)
+	q.Select(&out_).Key("PKey", 2500).Key("SortK", "AAA")
+	err := q.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of qlabel %s", err)
+	}
+
+	if len(out_.ListT) != 20 {
+		t.Errorf("Expected len of 10 got %d", len(out_.ListT))
+	}
+
+	utx = New("PostTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewDelete(gtbl).Key("PKey", 2500).Key("SortK", "AAA") //.Where(`attribute_exists(MaxPopulation)`)
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of Post PutUpdateList %s", err)
+	}
+
+}
+
+func TestDeleteCond(t *testing.T) {
+
+	listinput := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+	utx := New("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewInsert(gtbl).Key("PKey", 2500).Key("SortK", "AAA").AddMember("ListT", listinput)
+	err = utx.Execute()
+
+	if err != nil {
+		t.Logf("Error: in Execute of Pre DeleteCond %s", err)
+		t.Fatal()
+	}
+
+	utx = New("PostTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewDelete(gtbl).Key("PKey", 2500).Key("SortK", "AAA").Where(`attribute_exists(MaxPopulation)`)
+	err = utx.Execute()
+	if err != nil {
+		if !strings.Contains(err.Error(), "ConditionalCheckFailedException") {
+
+			t.Logf("Error: in Execute of PreTestUpdateList %s", err)
+			t.Fatal()
+		}
+	}
+
+	utx = New("PostTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewDelete(gtbl).Key("PKey", 2500).Key("SortK", "AAA")
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of  DeleteCond %s", err)
+	}
+
+}
+
+func TestMarshallInput(t *testing.T) {
+
+	type Record struct {
+		PKey      int
+		SortK     string
+		Bytes     []byte
+		ByteSlice [][]byte
+		MyField   string
+		Letters   []string
+		Numbers   []int
+	}
+
+	r := Record{
+		PKey:      3000,
+		SortK:     "MarshallInput",
+		Bytes:     []byte{48, 49},
+		ByteSlice: [][]byte{[]byte{48, 49}, []byte{49, 49}, []byte{52, 49}},
+		MyField:   "MyFieldValue",
+		Letters:   []string{"a", "b", "c", "d"},
+		Numbers:   []int{1, 2, 3},
+	}
+
+	var or Record
+
+	utx := New("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewInsert(gtbl).Submit(&r)
+	err = utx.Execute()
+
+	if err != nil {
+		t.Logf("Error: in Execute of Pre DeleteCond %s", err)
+		t.Fatal()
+	}
+
+	q := NewQuery("qlablel", gtbl)
+	q.Select(&or).Key("PKey", 3000).Key("SortK", "MarshallInput")
+	err := q.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of qlabel %s", err)
+	}
+
+	if len(or.Bytes) != 2 {
+		t.Logf("Error: Query expected len of 2 got %d", len(or.Bytes))
+		t.Fatal()
+	}
+
+}
+
+func TestMarshallInput2(t *testing.T) {
+
+	type Base struct {
+		Bytes     []byte
+		ByteSlice [][]byte
+		MyField   string
+		Letters   []string
+		Numbers   []int
+	}
+
+	type Record struct {
+		PKey      int
+		SortK     string
+		Bytes     []byte
+		ByteSlice [][]byte
+		MyField   string
+		Letters   []string
+		Numbers   []int
+		Another   Base
+	}
+
+	r := Record{
+		PKey:      3000,
+		SortK:     "MarshallInput2",
+		Bytes:     []byte{48, 49},
+		ByteSlice: [][]byte{[]byte{48, 49}, []byte{49, 49}, []byte{52, 49}},
+		MyField:   "MyFieldValue",
+		Letters:   []string{"a", "b", "c", "d"},
+		Numbers:   []int{1, 2, 3},
+	}
+	r.Another = Base{
+		Bytes:     []byte{48, 49},
+		ByteSlice: [][]byte{[]byte{48, 49}, []byte{49, 49}, []byte{52, 49}},
+		MyField:   "MyFieldValue",
+		Letters:   []string{"a", "b", "c", "d"},
+		Numbers:   []int{1, 2, 3},
+	}
+
+	r2 := Record{
+		PKey:      3000,
+		SortK:     "MarshallInput2",
+		Bytes:     []byte{48, 49},
+		ByteSlice: [][]byte{[]byte{48, 49}, []byte{49, 49}, []byte{52, 49}},
+		MyField:   "MyFieldValue",
+		Letters:   []string{"e", "f", "g", "h"},
+		Numbers:   []int{1, 2, 3},
+	}
+	r2.Another = Base{
+		Bytes:     []byte{48, 49},
+		ByteSlice: [][]byte{[]byte{48, 49}, []byte{49, 49}, []byte{52, 49}},
+		MyField:   "MyFieldValue",
+		Letters:   []string{"e2", "f2", "g2", "h2"},
+		Numbers:   []int{1, 2, 3},
+	}
+
+	var or Record
+
+	utx := New("PreTestUpdList") // std api
+
+	utx.NewInsert(gtbl).Submit(&r).Where("attribute_not_exists(PKey)")
+
+	utx.NewInsert(gtbl).Submit(&r2).Where("attribute_exists(PKey)")
+	err = utx.Execute()
+
+	if err != nil {
+		t.Logf("Error: in Execute of Pre MarshallInput2 %s", err)
+		t.Fatal()
+	}
+
+	q := NewQuery("qlablel", gtbl)
+	q.Select(&or).Key("PKey", 3000).Key("SortK", "MarshallInput2")
+	err := q.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of qlabel %s", err)
+	}
+
+	if len(or.Bytes) != 2 {
+		t.Logf("Error: Query expected len of 2 got %d", len(or.Bytes))
+		t.Fatal()
+	}
+	utx = New("MarshallInput2") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewDelete(gtbl).Key("PKey", 3000).Key("SortK", "MarshallInput2")
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of  DeleteCond %s", err)
+	}
+
+}
+
+func TestTxMarshallInput3(t *testing.T) {
+
+	type Base struct {
+		Bytes     []byte
+		ByteSlice [][]byte
+		MyField   string
+		Letters   []string
+		Numbers   []int
+	}
+
+	type Record struct {
+		PKey      int
+		SortK     string
+		Bytes     []byte
+		ByteSlice [][]byte
+		MyField   string
+		Letters   []string
+		Numbers   []int
+		Another   Base
+	}
+
+	r := Record{
+		PKey:      3000,
+		SortK:     "TxMarshallInput3",
+		Bytes:     []byte{48, 49},
+		ByteSlice: [][]byte{[]byte{48, 49}, []byte{49, 49}, []byte{52, 49}},
+		MyField:   "MyFieldValue",
+		Letters:   []string{"a", "b", "c", "d"},
+		Numbers:   []int{1, 2, 3},
+	}
+	r.Another = Base{
+		Bytes:     []byte{48, 49},
+		ByteSlice: [][]byte{[]byte{48, 49}, []byte{49, 49}, []byte{52, 49}},
+		MyField:   "MyFieldValue",
+		Letters:   []string{"a", "b", "c", "d"},
+		Numbers:   []int{1, 2, 3},
+	}
+
+	r2 := Record{
+		PKey:      3001,
+		SortK:     "TxMarshallInput3",
+		Bytes:     []byte{48, 49},
+		ByteSlice: [][]byte{[]byte{48, 49}, []byte{49, 49}, []byte{52, 49}},
+		MyField:   "MyFieldValue",
+		Letters:   []string{"e", "f", "g", "h"},
+		Numbers:   []int{1, 2, 3},
+	}
+	r2.Another = Base{
+		Bytes:     []byte{48, 49},
+		ByteSlice: [][]byte{[]byte{48, 49}, []byte{49, 49}, []byte{52, 49}},
+		MyField:   "MyFieldValue",
+		Letters:   []string{"e2", "f2", "g2", "h2"},
+		Numbers:   []int{1, 2, 3},
+	}
+
+	utx := New("PreTestTxMarshallInput3") // std api
+
+	utx.NewInsert(gtbl).Submit(&r)
+
+	utx.NewInsert(gtbl).Submit(&r2)
+
+	err = utx.Execute()
+
+	utx = NewTx("PreTestTxMarshallInput3a") // std api
+
+	utx.NewInsert(gtbl).Submit(&r).Where("attribute_exists(PKey)")
+
+	utx.NewInsert(gtbl).Submit(&r2).Where("attribute_not_exists(PKey)")
+	err = utx.Execute()
+
+	if err != nil {
+		if strings.Index(err.Error(), "Transaction cancelled") == 0 {
+			t.Logf(`Error: in Execute of TxMarshallInput3 Expected "Transaction cancelled" got %q`, err)
+			t.Fatal()
+		}
+		t.Logf("valid output: %s", err)
+	}
+
+	utx = New("TxMarshallInput3") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewDelete(gtbl).Key("PKey", 3000).Key("SortK", "TxMarshallInput3")
+	utx.NewDelete(gtbl).Key("PKey", 3001).Key("SortK", "TxMarshallInput3")
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of  DeleteCond %s", err)
+	}
+
+}
