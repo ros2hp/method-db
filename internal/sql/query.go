@@ -90,6 +90,27 @@ func sqlOpr(o string) string {
 	return o
 }
 
+// func sqlOpr(o mut.Modifier) string {
+
+// 	switch o {
+// 	case mut.EQ:
+// 		return "="
+// 	case mut.NE:
+// 		return "!="
+// 	case mut.LE:
+// 		return "<="
+// 	case mut.GE:
+// 		return ">="
+// 	case mut.LT:
+// 		return "<"
+// 	case mut.GT:
+// 		return ">"
+// 	case mut.NOT:
+// 		return "not"
+// 	}
+// 	panic(fmt.Errorf("sqlOpr %q cannot be converted to string", o))
+// }
+
 // executeQuery handles one stmt per tx.NewQuery*()
 // the idea of multiple queries to a tx needs to be considered so tx has []QueryHandle
 func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt ...db.Option) error {
@@ -293,7 +314,7 @@ func ExecuteQuery(ctx context.Context, client *sql.DB, q *query.QueryHandle, opt
 		s.WriteString(" limit " + strconv.Itoa(l))
 
 	}
-
+	q.SaveSQL(s.String())
 	// slog.Log("executeQuery", fmt.Sprintf("generated sql: [%s]", s.String()))
 	// fmt.Printf("generated sql: [%s]", s.String())
 	if q.Prepare() {

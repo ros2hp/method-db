@@ -14,17 +14,21 @@ import (
 )
 
 type StdMut byte
-type Modifier byte // aka update-expression in dynamodb (almost)
+type Modifier = string // aka update-expression in dynamodb (almost)
 type Cond byte
 type BoolCd byte
-type KeyTy byte
+type Attrty byte
 
 const (
 	NIL BoolCd = iota
 	AND
 	OR
-
-	Partition KeyTy = iota + 1
+)
+const (
+	Partition Attrty = iota + 1
+	Sortkey
+	Key
+	Filter
 )
 
 //type OpTag Label
@@ -40,26 +44,38 @@ const (
 )
 const (
 	//
-	Set Modifier = iota + 1
-	// Inc             // set col = col + 1 //TODO: deprecated - performed by Add, Substract
-	// Decr            // set col = col - 1 //TODO: deprecated -
-	Subtract // set col = col - <value>
-	Add      // set col = col - <num>
-	Multiply // set col = col x <value>
-	Literal
-	Append   // update by appending to array/list attribute
-	Remove   // remove attribute
-	IsKey    // more a type of attribute than a modifier - but keep it here..
-	IsFilter // more a type of attribute than a modifier - but keep it here
-	// Dynamodb: Methoddb will marshal all slices as Dynamodb List. These modifiers will override attribute to be a Set data type.
-	DynBS // treat as a Binary Set, SS String Set, NS Number Set
-	DynSS
-	DynNS
+	SET      Modifier = "__SET"      // set col = <value>
+	SETNULL  Modifier = "__NULL"     // set col = <value>
+	SUBTRACT Modifier = "__SUBTRACT" // set col = col - <value>
+	ADD      Modifier = "__ADD"      // set col = col - <num>
+	MULTIPLY Modifier = "__MULTIPLY" // set col = col x <value>
+	//LITERAL  Modifier = "__Literal" // Wrong use. Literal is a struct tag used in queries
+	REMOVE   Modifier = "__REMOVE" // remove attribute
+	IsKey    Modifier = "__KEY"    // "__KEY"
+	KEY      Modifier = "__KEY"
+	IsFilter Modifier = "__FILTER" //used in Attribute() to define a filter operation.Equivalent methods: Filter(),OrFilter()
+	FILTER   Modifier = "__FILTER"
+	APPEND   Modifier = "__APPEND"
+	PREPEND  Modifier = "__PREPEND"
 	//
-	// IsKey    // Key(a,v) used in query & update mode. Alternative to registering table/index and its keys. TODO: deprecated - GoGraph determines from DD
-	// IsFilter // Filter(a,v)
-	//
+	// use in Key, Filter methods only
+	EQ  Modifier = "__EQ"
+	LT  Modifier = "__LT"
+	LE  Modifier = "__LE"
+	GT  Modifier = "__GT"
+	GE  Modifier = "__GE"
+	NE  Modifier = "__NE"
+	IN  Modifier = "__IN"
+	ANY Modifier = "__ANY"
+	NOT Modifier = "__NOT"
+	// Append                       // update by appending to array/list attribute
+	// Prepend                      //  update by prepending to array/list attribute
+	// Remove                       // remove attribute
+	// query portion of mutation
 )
+
+type Operation = string
+
 const (
 	AttrExists Cond = iota
 	AttrNotExists
@@ -87,26 +103,99 @@ func (s StdMut) String() string {
 	return "not-defined"
 }
 
-func (s Modifier) String() string {
-	switch s {
-	case Set:
-		return "Set"
-	// case Inc:
-	// 	return "Inc"
-	case Subtract:
-		return "Subtract"
-	case Add:
-		return "Add"
-	case Append:
-		return "Append"
-	case Remove:
-		return "Remove"
-	case IsKey:
-		return "IsKey"
-	case IsFilter:
-		return "IsFilter"
+type ModifierS []Modifier
+
+func (m *ModifierS) Exists(in Modifier) bool {
+	for _, v := range *m {
+		if v == in {
+			return true
+		}
 	}
-	return "not-defined"
+	return false
+}
+
+func (m *ModifierS) Assign(in Modifier) {
+
+	if !m.Exists(in) {
+		*m = append(*m, in)
+		fmt.Printf("Assign: add %#v\n", *m)
+	}
+
+}
+
+func (m *ModifierS) Delete(in Modifier) {
+	var found []int
+
+	for i, v := range *m {
+		if v == in {
+			found = append(found, i)
+		}
+	}
+
+	if len(found) == 1 && len(*m) == 1 {
+		*m = nil
+		return
+	}
+	for k, i := range found {
+		copy((*m)[i-k:], (*m)[i+1-k:])
+		*m = (*m)[:len(*m)-1]
+	}
+}
+
+func (m *ModifierS) Replace(this Modifier, with Modifier) {
+	fmt.Println("Replace..", this, with, len(*m))
+	for i, v := range *m {
+		fmt.Println("v, this ", v, this, with)
+		if v == this {
+			fmt.Println("v, this ", v, this, with)
+			(*m)[i] = with
+			return
+		}
+	}
+}
+
+func (m *ModifierS) Validate(im *Mutation, in Modifier) {
+	switch in {
+	case APPEND:
+		if m.Exists(SET) {
+			im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mix APPEND and SET"))
+		}
+		// if m.Exists(PREPEND) {
+		// 	im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mox APPEND and PREPEND"))
+		// }
+	case SET:
+		if m.Exists(APPEND) {
+			im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mix SET and APPEND"))
+		}
+		// if m.Exists(PREPEND) {
+		// 	im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mox SET and PREPEND"))
+		// }
+	case ADD:
+		if m.Exists(SUBTRACT) {
+			im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mix ADD and SUBTRACT"))
+		}
+		if m.Exists(MULTIPLY) {
+			im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mix ADD and MULTIPLY"))
+		}
+	case SUBTRACT:
+		if m.Exists(ADD) {
+			im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mix ADD and SUBTRACT"))
+		}
+		if m.Exists(MULTIPLY) {
+			im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mix MULTIPLY and SUBTRACT"))
+		}
+	case MULTIPLY:
+		if m.Exists(ADD) {
+			im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mix ADD and MULTIPLY"))
+		}
+		if m.Exists(SUBTRACT) {
+			im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mix MULTIPLY and SUBTRACT"))
+		}
+		// case IsKey:
+		// 	if m.Exists(IsFilter) {
+		// 		im.addErr(fmt.Errorf("Invalid combination of modifiers in AddAttribute(). Cannot mix IsKey and IsFilter"))
+		// 	}
+	}
 }
 
 // func (c Cond) String() string {
@@ -123,7 +212,7 @@ var (
 	err error
 )
 
-// Member defines all attributes in the Mutation, as either
+// Member defines all attributes in the Mutation, as either. Assigned during AddAttribute()
 //
 //	Set (used in update set), -- modify attribute in update
 //	Append, Remove, Subtract, Add, Multiply -- all modify attribute in update
@@ -134,66 +223,81 @@ var (
 // TODO hide Member fields - directly access from tx so needs to be exposed but not to world, so make it an internal (no need to be world too)
 type Member struct {
 	//sortk string
-	Name    string // attribute name: when contains "#",":"??
+	name    string // attribute name: when contains "#",":"??
 	Param   string // used in Spanner implementation. All value placements are identified by "@param"
-	Value   interface{}
-	Array   bool     // set in AddMember(). Append modifier is valid to ie. is an array (List) type in Dynamodb
-	Mod     Modifier // for update stmts only: default is to concat for Array type. When true will overide with set of array.
-	keyTy   KeyTy    // attribute type, e.g. Key, Filter, Fetch
-	eqy     string   // Scalar Opr: EQ, LE,...  Slice Opr: IN, ANY
-	boolCd  BoolCd   // And, Or - appropriate for Filter only.
-	literal string   // literal struct tag value - . alternative to value - replace attribute name with literal in query stmt.
-
+	value   interface{}
+	oper    Operation // SET, APPEND....
+	Array   bool      // set in AddAttribute(). Append modifier is valid to ie. is an array (List) type in Dynamodb
+	mod     ModifierS // for update stmts only: default is to concat for Array type. When true will overide with set of array.
+	literal string    // literal struct tag value - . alternative to value - replace attribute name with literal in query stmt.
+	//
+	aty    Attrty // attribute type, e.g. Key, Filter
+	eqy    string // Scalar Opr: EQ, LE,...  Slice Opr: IN, ANY
+	boolCd BoolCd // And, Or - appropriate for Filter only.
+	//
+	tags []string // struct tags
 }
 
-// func (m *Member) Name() string {
-// 	return m.name
-// }
+func (m *Member) GetTags() []string {
+	return m.tags
+}
 
-// func (m *Member) Param() string {
-// 	return m.param
-// }
+func (m *Member) SetTags(t []string) {
+	m.tags = t
+}
 
-// func (m *Member) Value() interface{} {
-// 	return m.Value
-// }
+func (m *Member) GetModifier() *ModifierS {
+	return &m.mod
+}
 
-// func (m *Member) Array() bool {
-// 	return m.array
-// }
-
-// func (m *Member) Mod() Modifier {
-// 	return m.mod
-// }
+func (m *Member) GetOperation() Operation {
+	return m.oper
+}
 
 func (m *Member) IsKey() bool {
-	return m.Mod == IsKey
+	switch m.aty {
+	case Partition, Sortkey, Key:
+		return true
+	}
+	return false
 }
 
 func (m *Member) IsPartitionKey() bool {
-	return m.keyTy == Partition
+	return m.aty == Partition
+}
+
+func (m *Member) Name() string {
+	return m.name
+}
+
+func (m *Member) Value() interface{} {
+	return m.value
+}
+
+func (m *Member) SetValue(v interface{}) {
+	m.value = v
 }
 
 // Aty emulates query aty -
-func (m *Member) Aty() Modifier {
-	return m.Mod
-}
-
-func (m *Member) Set() bool {
-	return m.Mod == Set
-}
-
-// func (m *Member) Inc() bool {
-// 	return m.mod == Inc
+// func (m *Member) Aty() Modifier {
+// 	return m.mod
 // }
 
-func (m *Member) Subtract() bool {
-	return m.Mod == Subtract
-}
+// func (m *Member) Set() bool {
+// 	return m.mod.Exists(Set)
+// }
 
-func (m *Member) Add() bool {
-	return m.Mod == Add
-}
+// // func (m *Member) Inc() bool {
+// // 	return m.mod == Inc
+// // }
+
+// func (m *Member) Subtract() bool {
+// 	return m.mod.Exists(Subtract)
+// }
+
+// func (m *Member) Add() bool {
+// 	return m.mod.Exists(Add)
+// }
 
 // TODO: use IsLiteral ??? or change IsFilter, IsKey in mutation.
 
@@ -202,14 +306,14 @@ func (m *Member) Literal() string {
 }
 
 func (m *Member) IsFilter() bool {
-	return m.Mod == IsFilter
+	return m.aty == Filter
 }
 func (m *Member) BoolCd() BoolCd {
 	return m.boolCd
 }
 
 func (m *Member) GetOprStr() string {
-	return strings.ToUpper(m.eqy)
+	return m.eqy
 }
 
 // Examples of condition expression:
@@ -243,23 +347,40 @@ type Option struct {
 // 	return c.value
 // }
 
+type RtnMode string
+
+const (
+	RtnNone        RtnMode = "NONE"
+	RtnAllOld      RtnMode = "ALL_OLD"
+	RtnUpdatedOld  RtnMode = "UPDATED_OLD"
+	RtnValueAllNew RtnMode = "ALL_NEW"
+	RtnUpdatedNew  RtnMode = "UPDATED_NEW"
+)
+
+type Rtn struct {
+	mode RtnMode
+	val  interface{}
+}
+
 type Mutation struct {
-	ms     []Member    // AddMember - adds attribute mutation
+	ms     []*Member   // AddAttribute - adds attribute mutation
 	submit interface{} // use &struct{} definition to define []member. For Dynamodb, this is passed to MarshalMap, or MarshallListofMap
 	//
 	tag string // label for mutation. Potentially useful as a source of aggregation for performance statistics.
 	//cd *condition
-	// Where, Values method
-	where  string
+	// from Where() method
+	where string
+	// from Values() method
 	values []interface{}
 	// AndFilter, OrFilter counts
 	af, of int
-	// pk   uuid.UID
-	// sk   string
-	pKey interface{}
-	tbl  tbl.Name
-	keys []key.TableKey // table keys from database data dictionary
-	opr  StdMut         // update,insert(put), merge, delete
+	//
+	pKey    interface{}
+	tbl     tbl.Name
+	tblDesc *key.TabMeta
+	// keys []db.TableKey  // table keys from database data dictionary
+	// attr []db.TableAttr // table attribute names
+	opr StdMut // update,insert(put), merge, delete
 	//
 	text     string      // alternate representation of a mutation e.g. sql
 	prepStmt interface{} // some db's may optional "prepare" mutations before execution Three phase 1) single prepare stmt 2) multiple stmt executions 3) close stmt
@@ -267,6 +388,10 @@ type Mutation struct {
 	err      []error
 	config   []Option
 	hint     string
+	//
+	sql string
+	//
+	rtn *Rtn // return data from mutation
 }
 
 type Mutations []dbs.Mutation //*Mutation
@@ -328,16 +453,19 @@ func Truncate(tab tbl.Name) *Mutation {
 
 func (m *Mutation) GetStatements() []dbs.Statement { return nil }
 
-func (m *Mutation) GetMembers() []Member {
+func (m *Mutation) GetMembers() []*Member {
 	return m.ms
 }
 
-func SetMember(i int, ms []Member, v interface{}) {
-	ms[i].Value = v
+func (m *Mutation) SetMembers(a []*Member) {
+	m.ms = a
+}
+func SetMember(i int, ms []*Member, v interface{}) {
+	ms[i].value = v
 }
 
-// func (m *Mutation) keys() []Member {
-// 	var k []Member
+// func (m *Mutation) keys() []*Member {
+// 	var k []*Member
 // 	for _, v := range m.GetMembers() {
 // 		if v.IsKey() {
 // 			k = append(k, v)
@@ -346,8 +474,25 @@ func SetMember(i int, ms []Member, v interface{}) {
 // 	return k
 // }
 
-func (m *Mutation) GetKeys() []Member {
-	var k []Member
+func (m *Mutation) SaveSQL(s string) {
+	m.sql = s
+}
+
+func (m *Mutation) GetSQL() string {
+	return m.sql
+}
+
+func (m *Mutation) GetKeyComparOpr(key string) string {
+	for _, v := range m.GetMembers() {
+		if v.IsKey() && v.name == key {
+			return v.eqy
+		}
+	}
+	return ""
+}
+
+func (m *Mutation) GetKeys() []*Member {
+	var k []*Member
 	for _, v := range m.GetMembers() {
 		if v.IsKey() {
 			k = append(k, v)
@@ -356,8 +501,8 @@ func (m *Mutation) GetKeys() []Member {
 	return k
 }
 
-func (m *Mutation) GetFilter() []Member {
-	var k []Member
+func (m *Mutation) GetFilter() []*Member {
+	var k []*Member
 	for _, v := range m.GetMembers() {
 		if v.IsFilter() {
 			k = append(k, v)
@@ -366,8 +511,8 @@ func (m *Mutation) GetFilter() []Member {
 	return k
 }
 
-func (m *Mutation) GetLiterals() []Member {
-	var k []Member
+func (m *Mutation) GetLiterals() []*Member {
+	var k []*Member
 	for _, v := range m.GetMembers() {
 		if len(v.Literal()) > 0 {
 			k = append(k, v)
@@ -376,9 +521,58 @@ func (m *Mutation) GetLiterals() []Member {
 	return k
 }
 
-// AddTableKeys adds  keys on table sourced from database
-func (m *Mutation) AddTableKeys(k []key.TableKey) {
-	m.keys = k
+func (m *Mutation) GetFilterAttrs() []*Member {
+	var mm []*Member
+	for _, v := range m.GetMembers() {
+		if v.aty == Filter {
+			mm = append(mm, v)
+		}
+	}
+	return mm
+}
+
+func (m *Mutation) Return(rm RtnMode, v interface{}) *Mutation {
+
+	if m == nil {
+		return nil
+	}
+	m.rtn = &Rtn{mode: rm, val: v}
+	return m
+}
+
+func (m *Mutation) RtnRequested() bool {
+	if m.rtn != nil {
+		return true
+	}
+	return false
+}
+
+func (m *Mutation) GetRtnMode() RtnMode {
+	if m.rtn != nil {
+		return (*m.rtn).mode
+	}
+	return RtnNone
+}
+
+func (m *Mutation) GetRtnValue() interface{} {
+	if m.rtn != nil {
+		return (*m.rtn).val
+	}
+	return nil
+}
+
+func (m *Mutation) AddTableMeta(meta *key.TabMeta) {
+	m.tblDesc = meta
+}
+
+func (m *Mutation) GetTableKeys() []key.TableKey {
+	return m.tblDesc.GetKeys()
+	//return m.keys
+}
+
+func (m *Mutation) GetTableAttrs() key.AttributeT {
+	return m.tblDesc.GetAttrs()
+	//return m.keys
 }
 
 func (m *Mutation) SetPrepStmt(p interface{}) {
@@ -394,6 +588,11 @@ func (m *Mutation) SetText(p string) {
 }
 
 func (m *Mutation) Where(s string) *Mutation {
+	if len(m.GetFilter()) != 0 {
+		m.addErr(fmt.Errorf("Cannot mix Filter() and Where() methods"))
+		return m
+	}
+
 	m.where = s
 	return m
 }
@@ -424,36 +623,131 @@ func (m *Mutation) GetHint() string {
 	return m.hint
 }
 
-func (m *Mutation) Key(attr string, v interface{}, e ...string) *Mutation {
-	eqy := "EQ"
-	if len(e) > 0 {
-		eqy = strings.ToUpper(e[0])
+// Key used to target items in  Select, Update, Delete. Equiv: Attribue(<name>, <value>, SET)
+// optional arguments included Dyn struct tags and dynamodb query functions e.g. BeginsWith
+// Keys are scalar values in all databases. So not arrays, so In, Any not appropriate
+func (im *Mutation) Key(attr string, value interface{}, e ...Modifier) *Mutation {
+
+	if im == nil {
+		return im
 	}
 
-	m.AddMember(attr, v, IsKey)
-	mm := &m.ms[len(m.ms)-1] // grab member just added and set equality condition, SQL feature only. Checked at execute.
-	mm.eqy = eqy
+	// Parameterised names based on spanner's. Spanner uses a parameter name based on attribute name starting with "@". Params can be ignored in other dbs.
+	// For other database, such as MySQL, will need to convert from Spanner's repesentation to relevant database during query formulation in the Execute() phase.
+	p := strings.Replace(attr, "#", "_", -1)
+	p = strings.Replace(p, ":", "x", -1)
+	if p[0] == '0' {
+		p = "1" + p
+	}
 
-	return m
+	var found bool // validation error
+	for _, v := range e {
+		switch v {
+		case EQ, NE, LT, LE, GT, GE, NOT:
+		default:
+			if v[0:2] == "__" {
+				f := strings.ToUpper(v[2:])
+				im.addErr(fmt.Errorf("validation error in mutation %s: cannot specify %s with Key", im.tag, f))
+				return im
+			}
+
+		}
+	}
+
+	m := &Member{name: attr, Param: "@" + p, value: value, aty: Key}
+
+	m.eqy = "EQ"
+
+	if len(e) > 0 {
+		fmt.Println(">>> e[0]", e[0])
+		m.eqy = strings.ToUpper(e[0]) // func based comparision opeator BeginsWith
+	}
+
+	found = false // key
+	//tableKeys are correctly ordered based on table def
+	for i, kk := range im.GetTableKeys() {
+		//
+		if strings.ToUpper(kk.Name) == strings.ToUpper(attr) {
+			found = true
+			switch i {
+			case 0:
+				m.aty = Partition
+			case 1:
+				m.aty = Sortkey
+			}
+		}
+	}
+	if len(im.GetTableKeys()) > 0 && !found {
+		im.addErr(fmt.Errorf("Key attribute %q is not a table key.", attr))
+		im.ms = append(im.ms, m)
+		return im
+	}
+
+	im.ms = append(im.ms, m)
+
+	return im
 }
 
-func (m *Mutation) appendFilter(attr string, v interface{}, bcd BoolCd, e ...string) {
+func (m *Mutation) appendFilter(attr string, value interface{}, bcd BoolCd, e ...string) {
 
 	eqy := "EQ"
 	if len(e) > 0 {
-		eqy = strings.ToUpper(e[0])
+		switch e[0] {
+		case EQ, NE, LT, LE, GE, GT, NOT:
+			eqy = strings.ToUpper(e[0][2:])
+		default:
+			eqy = e[0]
+		}
+	}
+	// Parameterised names based on spanner's. Spanner uses a parameter name based on attribute name starting with "@". Params can be ignored in other dbs.
+	// For other database, such as MySQL, will need to convert from Spanner's repesentation to relevant database during query formulation in the Execute() phase.
+	p := strings.Replace(attr, "#", "_", -1)
+	p = strings.Replace(p, ":", "x", -1)
+	if p[0] == '0' {
+		p = "1" + p
 	}
 
-	m.AddMember(attr, v, IsFilter)
-	mm := &m.ms[len(m.ms)-1] // grab member just added and set equality condition
-	mm.eqy = eqy
-	fmt.Printf("appendFilter: %#v\n", mm)
+	mm := &Member{name: attr, Param: "@" + p, value: value, eqy: eqy, aty: Filter, boolCd: bcd}
+
+	m.ms = append(m.ms, mm)
 
 }
-func (m *Mutation) Filter(a string, v interface{}, e ...string) *Mutation {
 
-	var found bool
+func (m *Mutation) Filter(attr string, value interface{}, e ...string) *Mutation {
+	if m == nil {
+		return m
+	}
+	if len(m.GetWhere()) != 0 {
+		m.addErr(fmt.Errorf("Cannot mix Filter() and Where() methods"))
+		return m
+	}
+	var found bool // attr as key
 
+	// check attr is not. a key
+	//tableKeys are correctly ordered based on table def
+	for _, kk := range m.GetTableKeys() {
+		if strings.ToUpper(kk.Name) == strings.ToUpper(attr) {
+			m.addErr(fmt.Errorf("Filter attribute %q is a table key. Use Key() instead", attr))
+			return m
+		}
+	}
+
+	found = false // found error
+	for _, v := range e {
+		switch v {
+		case EQ, NE, LT, LE, GE, GT, NOT:
+		default:
+			if v[0:2] == "__" {
+				m.addErr(fmt.Errorf("Validation error in %s. Argument %s in mutation not expected. Expected inequalities or db functions  ", m.tag, v[2:]))
+				found = true
+			}
+		}
+	}
+	if found {
+		return m
+	}
+
+	found = false
 	for _, mm := range m.GetMembers() {
 		if mm.IsFilter() {
 			found = true
@@ -461,12 +755,12 @@ func (m *Mutation) Filter(a string, v interface{}, e ...string) *Mutation {
 		}
 	}
 	if found {
-		m.AndFilter(a, v, e...)
+		m.AndFilter(attr, value, e...)
 		return m
 		//
 	}
 
-	m.appendFilter(a, v, NIL, e...)
+	m.appendFilter(attr, value, NIL, e...)
 
 	return m
 }
@@ -475,6 +769,20 @@ func (m *Mutation) appendBoolFilter(attr string, v interface{}, bcd BoolCd, e ..
 
 	var found bool
 
+	// check attr is not. a key
+	//tableKeys are correctly ordered based on table def
+	for _, kk := range m.GetTableKeys() {
+		//
+		if strings.ToUpper(kk.Name) == strings.ToUpper(attr) {
+			found = true
+		}
+	}
+	if found {
+		m.addErr(fmt.Errorf("Filter attribute %q is a table key. Use Key() instead", attr))
+		return m
+	}
+
+	found = false
 	for _, mm := range m.GetMembers() {
 		if mm.IsFilter() && mm.boolCd == NIL {
 			found = true
@@ -494,12 +802,18 @@ func (m *Mutation) appendBoolFilter(attr string, v interface{}, bcd BoolCd, e ..
 }
 
 func (m *Mutation) AndFilter(a string, v interface{}, e ...string) *Mutation {
+	if m == nil {
+		return m
+	}
 	m.af++
 	return m.appendBoolFilter(a, v, AND, e...)
 
 }
 
 func (m *Mutation) OrFilter(a string, v interface{}, e ...string) *Mutation {
+	if m == nil {
+		return m
+	}
 	m.of++
 	return m.appendBoolFilter(a, v, OR, e...)
 }
@@ -509,6 +823,15 @@ func (m *Mutation) GetOr() int {
 }
 func (m *Mutation) GetAnd() int {
 	return m.af
+}
+
+func (m *Mutation) FilterSpecified() bool {
+	for _, v := range m.ms {
+		if v.aty == Filter {
+			return true
+		}
+	}
+	return false
 }
 
 // end - func (q *QueryHandle)
@@ -537,9 +860,32 @@ func (m *Mutation) GetOpr() StdMut {
 	return m.opr
 }
 
-// func (m *Mutation) GetPK() uuid.UID {
-// 	return m.pk
-// }
+func (m *Mutation) GetPK() string {
+	for _, mm := range m.GetMembers() {
+		if mm.aty == Partition {
+			return mm.name
+		}
+	}
+	return ""
+}
+
+func (m *Mutation) GetSK() string {
+	for _, mm := range m.GetMembers() {
+		if mm.aty == Sortkey {
+			return mm.name
+		}
+	}
+	return ""
+}
+
+func (m *Mutation) GetKeyValue(nm string) interface{} {
+	for _, mm := range m.GetMembers() {
+		if mm.IsKey() && mm.name == nm {
+			return mm.Value
+		}
+	}
+	return nil
+}
 
 // func (m *Mutation) GetSK() string {
 // 	return m.sk
@@ -551,7 +897,7 @@ func (m *Mutation) GetTable() string {
 
 func (m *Mutation) getMemberIndex(attr string) int {
 	for i, v := range m.ms {
-		if v.Name == attr {
+		if v.name == attr {
 			return i
 		}
 	}
@@ -561,7 +907,7 @@ func (m *Mutation) getMemberIndex(attr string) int {
 
 func (m *Mutation) GetMemberValue(attr string) interface{} {
 	for _, v := range m.ms {
-		if v.Name == attr {
+		if v.name == attr {
 			return v.Value
 		}
 	}
@@ -570,12 +916,12 @@ func (m *Mutation) GetMemberValue(attr string) interface{} {
 
 func (m *Mutation) SetMemberValue(attr string, v interface{}) {
 	i := m.getMemberIndex(attr)
-	e := reflect.TypeOf(m.ms[i].Value)
+	e := reflect.TypeOf(m.ms[i].value)
 	g := reflect.TypeOf(v)
 	if e.Kind() != g.Kind() {
 		panic(fmt.Errorf("SetMemberValue for %s expected a type of %q got %a", attr, e, g))
 	}
-	m.ms[i].Value = g
+	m.ms[i].value = g
 }
 
 func (m *Mutation) addErr(e error) {
@@ -599,108 +945,110 @@ func (im *Mutation) GetConfig(s string) interface{} {
 }
 
 // func (im *Mutation) Filter(attr string, value interface{}) *Mutation {
-// 	return im.AddMember(attr, value, IsFilter)
+// 	return im.AddAttribute(attr, value, IsFilter)
 // }
 
 func (im *Mutation) Increment(attr string) *Mutation {
-	return im.AddMember(attr, 1, Add)
+	if im == nil {
+		return im
+	}
+	return im.AddAttribute(attr, 1, ADD)
 }
 
 func (im *Mutation) Decrement(attr string) *Mutation {
-	return im.AddMember(attr, 1, Subtract)
+	if im == nil {
+		return im
+	}
+	return im.AddAttribute(attr, 1, SUBTRACT)
 }
 
 func (im *Mutation) Add(attr string, value interface{}) *Mutation {
-	return im.AddMember(attr, value, Add)
+	if im == nil {
+		return im
+	}
+	return im.AddAttribute(attr, value, ADD)
 }
 
 func (im *Mutation) Subtract(attr string, value interface{}) *Mutation {
-	return im.AddMember(attr, value, Subtract)
+	if im == nil {
+		return im
+	}
+	return im.AddAttribute(attr, value, SUBTRACT)
 }
 func (im *Mutation) Multiply(attr string, value interface{}) *Mutation {
-	return im.AddMember(attr, value, Multiply)
+	if im == nil {
+		return im
+	}
+	return im.AddAttribute(attr, value, MULTIPLY)
 }
 
-// Set("col2","upper(name")=:ABC",mut.Literal)
-func (im *Mutation) Set(attr string, value interface{}, m ...Modifier) *Mutation {
-	if len(m) > 0 {
-		if m[0] != Literal {
-			im.addErr(fmt.Errorf("Only literal modifier accepted in Set()"))
-			return im
+func (im *Mutation) Set(attr string, value interface{}, mod ...Modifier) *Mutation {
+	if im == nil {
+		return im
+	}
+
+	var found bool
+
+	for _, v := range mod {
+		if v[:2] == "__" {
+			im.addErr(fmt.Errorf("Cannot combine %s with SET", v[2:]))
+			found = true
 		}
-		return im.AddMember(attr, value, Literal)
 	}
-	return im.AddMember(attr, value, Set)
+	if found {
+		return im
+	}
+
+	m := im.addMember(attr, value, SET)
+	m.mod = mod
+
+	return im
 }
+
+// Append used in Array types only.
 func (im *Mutation) Append(attr string, value interface{}) *Mutation {
-	return im.AddMember(attr, value, Append)
-}
-func (im *Mutation) Remove(attr string) *Mutation {
-	return im.AddMember(attr, nil, Remove)
-}
-
-// func (im *Mutation) Attribute(attr string, value interface{}, m ...Modifier) *Mutation {
-// 	if len(m) > 0 {
-// 		return im.AddMember(attr, value, m...)
-// 	}
-// 	return im.AddMember(attr, value)
-// }
-
-// Submit defines a mutation using struct tags with tag names emulating each mutation method and attribute mutation method
-// func (im *Mutation) Submit(t interface{}) *Mutation {
-
-// 	if im.err != nil {
-// 		return im
-// 	}
-
-// 	f := reflect.TypeOf(t) // *[]struct
-// 	if f.Kind() != reflect.Ptr {
-// 		panic(fmt.Errorf("Fetch argument: expected a pointer, got a %s", f.Kind()))
-// 	}
-// 	//save addressable component of interface argument
-
-// 	s := f.Elem()
-// 	sv := reflect.Indirect(reflect.ValueOf(t))
-
-// 	switch s.Kind() {
-// 	case reflect.Struct:
-// 		// used in GetItem (single row select)
-// 		for i := 0; i < s.NumField(); i++ {
-// 			sf := s.Field(i) // StructField
-// 			fv := sv.Field(i)
-// 			if name, ok := sf.Tag.Lookup("mdb"); ok {
-// 				switch strings.ToLower(name) {
-// 				case "key":
-// 					im.Key(sf.Name, fv.Interface())
-// 				case "add":
-// 					im.Add(sf.Name, fv.Interface())
-// 				case "subtract":
-// 					im.Subtract(sf.Name, fv.Interface())
-// 				case "multiply":
-// 					im.Multiply(sf.Name, fv.Interface())
-// 				case "filter":
-// 					im.Filter(sf.Name, fv.Interface())
-// 				case "append":
-// 					im.Append(sf.Name, fv.Interface())
-// 				case "remove":
-// 					im.Remove(sf.Name)
-// 				default:
-// 					im.addErr(fmt.Errorf("Submit(): unsupported struct tag value: %q", name))
-// 				}
-// 			}
-// 		}
-// 	default:
-// 		im.addErr(fmt.Errorf("Submit(): expected a pointer to struct got pointer to %s", s.Kind()))
-// 	}
-
-// 	return im
-// }
-
-func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *Mutation {
-
-	if im.submit != nil {
-		panic(fmt.Errorf("Cannot us mutation methods with Submit()"))
+	if im == nil {
+		return im
 	}
+
+	if !IsArray(value) {
+		im.addErr(fmt.Errorf("Validation error in %s, expected an array/slice type for Append", im.tag))
+		return im
+	}
+
+	m := im.addMember(attr, value, APPEND)
+	m.Array = true
+
+	return im
+}
+
+func (im *Mutation) Prepend(attr string, value interface{}) *Mutation {
+	if im == nil {
+		return im
+	}
+
+	if !IsArray(value) {
+		im.addErr(fmt.Errorf("Validation error in %s, expected an array/slice type for Append", im.tag))
+		return im
+	}
+
+	m := im.addMember(attr, value, PREPEND)
+	m.Array = true
+
+	return im
+}
+
+func (im *Mutation) Remove(attr string) *Mutation {
+	if im == nil {
+		return im
+	}
+
+	im.addMember(attr, nil, REMOVE)
+
+	return im
+}
+
+func (im *Mutation) addMember(attr string, value interface{}, oper Operation) *Member {
 	// Parameterised names based on spanner's. Spanner uses a parameter name based on attribute name starting with "@". Params can be ignored in other dbs.
 	// For other database, such as MySQL, will need to convert from Spanner's repesentation to relevant database during query formulation in the Execute() phase.
 	p := strings.Replace(attr, "#", "_", -1)
@@ -708,103 +1056,198 @@ func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *
 	if p[0] == '0' {
 		p = "1" + p
 	}
-	m := Member{Name: attr, Param: "@" + p, Value: value, eqy: "EQ"}
+	m := &Member{name: attr, Param: "@" + p, value: value, oper: oper}
 
-	// assign Set to mut.Mod even for Insert DML where Mod will be ignored.
-	m.Mod = Set
+	im.ms = append(im.ms, m)
 
-	// determine if member is an array type based on its value type. For Dynamobd  arrays are List or Set types.
-	// However, there is no way to distinguish between List or Set using the value type,
-	// but this is not necessary as GoGraph uses Lists only - as the order of the array data is important and needs to be preserved.
-	// For Spanner there is only one array type.
-	// Using reflect pkg replaces the use of hardwire attribute names that identify the array types e.g. case "Nd", " ", "Id", "XBl", "L*":
-	// (the advantage of hardwiring attribute names is it makes for a generic solution that suits both Dynamodb & Spanner).
-	// default behaviour is to append value to end of array
-	// TODO: come up with generic solution for both Dynamodb & Spanner - probably not possible so make use of conditional compilation.
-	if IsArray(value) {
+	return m
+}
 
-		m.Array = true
-		m.Mod = Append
-		if len(mod) > 0 {
-			switch mod[0] {
-			case Set:
-				m.Mod = Set
-			case Append:
-			default:
-				im.addErr(fmt.Errorf("Error: %q modifier not suitable array type attribute", attr))
+// AddAttribute(<attribute>,<vauue>, <modifier>)
+// for Insert/Put Modifier can be
+//
+//	for array: marshal to: DynSet, DynList
+//
+// for Update Modifier can be
+//
+//	for array: Set, Append, PrePend
+//	for non-array: Set, Add, Subtract, Increment, Descrement
+//
+// for Delete Modifier can be:
+
+func (im *Mutation) Attribute(attr string, value interface{}, mod ...Modifier) *Mutation {
+	return im.AddMember(attr, value, mod...)
+}
+
+func (im *Mutation) AddAttribute(attr string, value interface{}, mod ...Modifier) *Mutation {
+	return im.AddMember(attr, value, mod...)
+}
+
+func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *Mutation {
+
+	if im == nil {
+		return im
+	}
+	// separate out the target methods
+	mx := ModifierS(mod)
+	if mx.Exists(IsKey) {
+		mx.Delete(IsKey)
+		fmt.Println("AddMember ISKEY.....")
+		return im.Key(attr, value, mx...)
+	}
+	if mx.Exists(KEY) {
+		mx.Delete(KEY)
+		fmt.Println("AddMember ISKEY2.....")
+		return im.Key(attr, value, mx...)
+	}
+	if mx.Exists(IsFilter) {
+		mx.Delete(IsFilter)
+		return im.Filter(attr, value, mx...)
+	}
+	if mx.Exists(FILTER) {
+		mx.Delete(FILTER)
+		return im.Filter(attr, value, mx...)
+	}
+
+	// separate out the mutation operations
+	if mx.Exists(APPEND) {
+		// TODO: check SET not in mod
+		return im.Append(attr, value)
+	}
+	if mx.Exists(PREPEND) {
+		return im.Prepend(attr, value)
+	}
+	if mx.Exists(REMOVE) {
+		return im.Remove(attr)
+	}
+	if mx.Exists(SET) {
+		mx.Delete(SET)
+		return im.Set(attr, value, mx...)
+	}
+
+	// left with mods of Inequalities EQ,NE,LT etc
+
+	// Parameterised names based on spanner's. Spanner uses a parameter name based on attribute name starting with "@". Params can be ignored in other dbs.
+	// For other database, such as MySQL, will need to convert from Spanner's repesentation to relevant database during query formulation in the Execute() phase.
+	p := strings.Replace(attr, "#", "_", -1)
+	p = strings.Replace(p, ":", "x", -1)
+	if p[0] == '0' {
+		p = "1" + p
+	}
+
+	m := &Member{name: attr, Param: "@" + p, value: value, oper: SET}
+	m.mod = mod
+
+	// if !mx.Exists(SET) {
+	// 	m.mod.Assign(SET)
+	// }
+
+	//tableKeys are correctly ordered based on table def
+	// check attr is key
+	var isKey_ bool
+	for i, kk := range im.GetTableKeys() {
+		//
+		if strings.ToUpper(kk.Name) == strings.ToUpper(attr) {
+			isKey_ = true
+			if i == 0 {
+				m.aty = Partition
+			}
+			if i == 1 {
+				m.aty = Sortkey
 			}
 		}
+	}
 
+	// validate Modifier value.
+	// Must specifiy IsFilter to be used in where clause or filter expression, otherwise will be used to Set in a Update mutation.
+	switch len(mod) {
+	case 0:
+		if im.opr == Insert {
+			break
+		}
+		//	below is not an error. KEY is used as target identifier and is passed into where clause, not set.
+		if isKey_ {
+			im.addErr(fmt.Errorf("Validation error in %s. %q is a key in table and cannot be updated", im.tag, attr))
+		}
+
+	default:
+		// check only if table keys supplied
+		if len(im.GetTableKeys()) > 0 {
+			if im.opr == Insert {
+				break
+			}
+			if isKey_ {
+				im.addErr(fmt.Errorf("Validation error in %s. %q is a key in table and cannot be updated", im.tag, attr))
+				return nil
+			}
+		}
+	}
+	var eqySet, operSet bool
+	// set equality (eqy) EQ..NE,<any db function e.g. BEGINSWITH, for mutation - only appropriate for IsKey, IsFilter modifiers
+	// AddAttribute(SortK,<>,mut.IsKey,"BeginsWith")
+	for i, v := range mod {
+
+		switch v {
+
+		// inequalities, used in Key, Filter only.
+		case EQ, NE, GT, GE, LT, LE, NOT:
+			if len(mod) == 1 {
+				return im.Filter(attr, value, mod...)
+			} else {
+				im.addErr(fmt.Errorf("Validation error in %s. Expected one Inequality got %d", len(mod)))
+			}
+			// m.eqy = mod[i][2:]
+			// m.aty = Filter
+			//	im.addErr(fmt.Errorf("Validation error in %s. %s defined on attribute %s for Key or Filter only", im.tag, m.eqy, attr))
+
+		// math operations
+		case ADD, SUBTRACT, MULTIPLY, SETNULL:
+			m.oper = mod[i]
+			//	m.mod.Delete(SET)
+			operSet = true
+		}
+
+		// database function
+		if v[0] != '_' {
+			// db function e.g. BeginsWith
+			m.eqy = mod[i]
+			eqySet = true
+		}
+
+	}
+
+	// default operation for Array datatype is APPEND
+	if IsArray(value) {
+
+		if operSet {
+			im.addErr(fmt.Errorf("Validation error in %s. %s is not an appropriate value for array type %s", im.tag, m.oper, attr))
+		}
+		if eqySet {
+			im.addErr(fmt.Errorf("Validation error in %s. %s is not an appropriate value for array type %s", im.tag, m.eqy, attr))
+		}
+		m.Array = true
+		m.oper = APPEND
 		im.ms = append(im.ms, m)
 
 		return im
 	}
 
-	// check attr is key
-	var (
-		isKey_ bool
-	)
-
-	//tableKeys are correctly ordered based on table def
-	for i, kk := range im.keys {
-		//
-		if strings.ToUpper(kk.Name) == strings.ToUpper(attr) {
-			isKey_ = true
-			if i == 0 {
-				m.keyTy = Partition
-			}
-		}
-		// TODO: dynamodb is case sensitive to attribute names, wheras SQL is not. How to handle.
-		// no case check
-		// if strings.ToUpper(kk.Name) == strings.ToUpper(attr) {
-		// 	isKey = true
-		// }
+	// set eqy to EQ, default for IsKey, IsFilter (ignored for all others)
+	if len(m.eqy) == 0 {
+		m.eqy = "EQ"
 	}
-	// validate Modifier value.
-	// Must specifiy IsFilter to be used in where clause or filter expression, otherwise will be used to Set in a Update mutation.
-	switch len(mod) {
-	case 0:
-		if isKey_ {
-			m.Mod = IsKey
-		} else {
-			if im.opr == Delete {
-				m.Mod = IsFilter
-			}
-		}
 
-	case 1:
-		m.Mod = mod[0]
-		// check only if table keys supplied
-		if len(im.keys) > 0 {
-			if im.opr == Insert {
-				break
-			}
-			switch m.Mod {
-			case IsKey:
-				if !isKey_ {
-					im.addErr(fmt.Errorf("Error: %q is not a key in table", attr))
-				}
-			case IsFilter:
-				if isKey_ {
-					im.addErr(fmt.Errorf("Error: Specified %q is a Key not a filter", attr))
-				}
-			case Append:
-				if isKey_ {
-					im.addErr(fmt.Errorf("Error: Specified %q is a Key, cannot use Append modifier", attr))
-				}
-			case Remove:
-				if isKey_ {
-					im.addErr(fmt.Errorf("Error:  Specified %q is a Key, cannot use Remove modifier", attr))
-				}
-			case Literal:
-				if isKey_ {
-					im.addErr(fmt.Errorf("Error:  Specified %q is a Key, cannot use Literal modifier", attr))
-				}
-			}
-		}
-	default:
-		im.addErr(fmt.Errorf("Error in AddMember for %q. Cannot specifty more than one modifier", attr))
-	}
+	//validate mod
+	// for _, v := range mod {
+	// 	m := ModifierS(mod)
+	// 	m.Validate(im, v)
+	// }
+	// if len(im.GetError()) > 0 {
+	// 	return im
+	// }
+	// for _, v := range m.mod {
+	// 	fmt.Println("3  modifier ", v)
+	// }
 
 	im.ms = append(im.ms, m)
 
@@ -813,6 +1256,9 @@ func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *
 
 func (im *Mutation) Submit(in interface{}) *Mutation {
 
+	if im == nil {
+		return nil
+	}
 	if len(im.ms) > 0 {
 		panic(fmt.Errorf("Cannot use Submit() with other mutation methods"))
 	}
@@ -826,90 +1272,409 @@ func (im *Mutation) GetSubmit() interface{} {
 	return im.submit
 }
 
-// func (im *Mutation) AddMember2(attr string, value interface{}, opr ...Modifier) *Mutation {
+func (im *Mutation) MarshalAttributes(in interface{}, tag_ ...string) ([]*Member, error) { // []*Attribute
 
-// 	// Parameterised names based on spanner's. Spanner uses a parameter name based on attribute name starting with "@". Params can be ignored in other dbs.
-// 	// For other database, such as MySQL, will need to convert from Spanner's repesentation to relevant database during query formulation in the Execute() phase.
-// 	p := strings.Replace(attr, "#", "_", -1)
-// 	p = strings.Replace(p, ":", "x", -1)
-// 	if p[0] == '0' {
-// 		p = "1" + p
-// 	}
-// 	m := Member{Name: attr, Param: "@" + p, Value: value}
+	//keys := im.GetTableKeys()
+	attrs := im.GetTableAttrs()
+	fmt.Println(" : len(attrs) ", len(attrs))
+	var ty reflect.Type
+	var vi reflect.Value
 
-// 	// assign Set to mut.Mod even for Insert DML where Mod will be ignored.
-// 	m.mod = Set
+	//in := im.GetSubmit()
+	if in == nil {
+		return nil, fmt.Errorf("nil input value for MarshalAttribute2 ")
+	}
+	for {
+		vi = reflect.ValueOf(in)
+		ty = vi.Type()
+		if ty.Kind() == reflect.Pointer {
+			vi = reflect.ValueOf(in).Elem()
+			ty = vi.Type()
+		}
 
-// 	// determine if member is an array type based on its value type. For Dynamobd  arrays are List or Set types.
-// 	// However, there is no way to distinguish between List or Set using the value type,
-// 	// but this is not necessary as GoGraph uses Lists only - as the order of the array data is important and needs to be preserved.
-// 	// For Spanner there is only one array type.
-// 	// Using reflect pkg replaces the use of hardwire attribute names that identify the array types e.g. case "Nd", " ", "Id", "XBl", "L*":
-// 	// (the advantage of hardwiring attribute names is it makes for a generic solution that suits both Dynamodb & Spanner).
-// 	// default behaviour is to append value to end of array
-// 	// TODO: come up with generic solution for both Dynamodb & Spanner - probably not possible so make use of conditional compilation.
-// 	m.Array = IsArray(value)
+		if ty.Kind() == reflect.Slice {
+			vi = reflect.ValueOf(in).Elem()
+			ty = vi.Type()
+		}
+		if ty.Kind() == reflect.Struct {
+			break
+		}
+	}
+	msOld := im.GetMembers()
+	im.SetMembers(nil)
 
-// 	// override Mod value with argument value if specified
-// 	if len(opr) > 0 {
-// 		m.mod = opr[0]
-// 	} else if m.Array {
-// 		// default operation for arrays is append.
-// 		// However, if array attribute does not exist Dynamo generates error: ValidationException: The provided expression refers to an attribute that does not exist in the item
-// 		// in such cases you must Put
-// 		// Conclusion: for the initial load the default is Put - this will overwrite what is in Nd which for the initial load will by a single NULL entry.
-// 		// this is good as it means the the index entries in Nd match those in the scalar propagation atributes.
-// 		// After the initial load the default should be set to Append as all items exist and the associated array attributes exist in those items, so appending will succeed.
-// 		// Alternative solution is to add a update condition that test for attribute_exists(PKey) - fails and uses PUT otherwise Updates.
-// 		m.mod = Append
-// 	}
-// 	im.ms = append(im.ms, m)
+	switch im.GetOpr() {
+	case Insert:
 
-// 	// Nd attribute is specified only during attach operations. Increment ASZ (Array Size) attribute in this case only.
-// 	// if attr == "Nd" {
-// 	// 	m = Member{Name: "ASZ", Param: "@ASZ", Value: 1, Mod: Inc}
-// 	// 	im.ms = append(im.ms, m)
-// 	// }
-// 	//	}
-// 	return im
-// }
+		// table attribute names
+		// for f := 0; f < ty.NumField(); f++ {
+		// 	var fnm string
+		// 	// ignore tag
+		// 	if ty.Field(f).Tag.Get("mdb") == "-" {
+		// 		continue
+		// 	}
+		// 	tag := strings.Split(ty.Field(f).Tag.Get("mdb"), ",")
+		// 	if len(tag[0]) > 0 {
+		// 		fnm = tag[0]
+		// 	} else {
+		// 		fnm = ty.Field(f).Name
+		// 	}
+		// 	fmt.Println("field: ", fnm)
 
-// func (im *Mutation) AddCondition(cond Cond, attr string, value ...interface{}) *Mutation { //, opr ...StdMut)
+		// 	// check field is a table attribute
+		// 	if _, ok := attrs[fnm]; !ok {
+		// 		continue
+		// 	}
+		// 	// match
+		// 	m := im.Attribute(fnm, vi.Field(f).Interface(), SET)
+		// 	if m == nil {
+		// 		return im.GetError()[0]
+		// 	}
+		// }
+		// table attribute names
+		fmt.Println("Arg; ", tag_)
+		for f := 0; f < ty.NumField(); f++ {
 
-// 	im.cd = &condition{cond: cond, attr: attr, value: value}
+			var (
+				fnm    string
+				omit   bool
+				atrtag []Modifier
+			)
+			// ignore tag
+			if ty.Field(f).Tag.Get("mdb") == "-" {
+				continue
+			}
+			//
+			// non-mdb
+			//
+			if len(tag_) > 0 {
+				// support tag dynamodbav
+				switch tag_[0] {
+				case "dynamodbav":
 
-// 	return im
-// }
+					if ty.Field(f).Tag.Get(tag_[0]) == "-" {
+						continue
+					}
 
-// func (im *Mutation) GetCondition() *condition {
-// 	return im.cd
-// }
+					tags := strings.Split(ty.Field(f).Tag.Get(tag_[0]), ",")
 
-// NewMutation is written specifically for GoGraph. Pkg Cache has its own GOGraph version of this function
-// Arguments pk,sk need to be replaced somehow, to remove dependency on types. Maybe use Tbl package in
-// which tables are registered with known pk and sk (names and datatypes)
-// func NewMutation(tab tbl.Name, pk uuid.UID, sk string, opr StdMut) *Mutation {
+					for i, t := range tags {
 
-// 	// not all table are represented in the Key table.
-// 	// Those that are not make use of the IsKey member attribute
-// 	kpk, ksk, _ := tbl.GetKeys(tab)
+						switch i {
+						case 0:
+							// attribute name
+							if len(t) > 0 {
+								fnm = t
+								fmt.Println("***attribute renamed to : ", fnm)
+							} else {
+								fnm = ty.Field(f).Name
+								fmt.Println("***attribute  : ", fnm)
+							}
 
-// 	mut := &Mutation{tbl: tab, opr: opr}
+						default:
 
-// 	// presumes all Primary Keys are a UUID
-// 	// first two elements of mutations must be a PK and SK or a blank SK "__"
-// 	if len(kpk) > 0 {
+							fmt.Println("insert dynamodb: ", t)
+							switch strings.ToLower(t) {
+							case "binaryset":
+								atrtag = append(atrtag, "_BINARYSET")
+							case "numberset":
+								atrtag = append(atrtag, "_NUMBERSET")
+							case "stringset":
+								atrtag = append(atrtag, "_STRINGSET")
+							case "string":
+								switch vi.Field(f).Type().Kind() {
+								case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+									atrtag = append(atrtag, "_string")
+								case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+									atrtag = append(atrtag, "_string")
+								case reflect.Float32, reflect.Float64:
+									atrtag = append(atrtag, "_string")
+								default:
+									fmt.Println("tag string not appropriate for type")
+								}
+							case "omitempty":
+								if vi.Field(f).IsZero() {
+									omit = true
+								}
+							case "omitemptyelem":
+								switch vi.Field(f).Type().Kind() {
+								case reflect.Slice, reflect.Map:
+									if vi.Field(f).IsZero() {
+										omit = true
+									}
+								default:
+									return nil, fmt.Errorf("error in tag for field %s. nullemptyelem applies to slice or map only. ", ty.Field(f).Name)
+								}
+							case "nullempty":
+								if vi.Field(f).IsZero() {
+									atrtag = append(atrtag, SETNULL)
+								}
+							case "nullemptyelem":
+								switch vi.Field(f).Type().Kind() {
+								case reflect.Slice, reflect.Map:
+									if vi.Field(f).IsZero() {
+										atrtag = append(atrtag, SETNULL)
+									}
+								default:
+									return nil, fmt.Errorf("error in tag for field %s. nullemptyelem applies to slice or map only. ", ty.Field(f).Name)
+								}
+							}
+						}
+					}
+				}
+			}
+			//
+			// mdb
+			//
+			tag := strings.Split(ty.Field(f).Tag.Get("mdb"), ",")
 
-// 		mut.AddMember(kpk, []byte(pk), IsKey)
-// 		if len(ksk) > 0 {
-// 			mut.AddMember(ksk, sk, IsKey)
-// 		} else {
-// 			mut.AddMember("__", "")
-// 		}
-// 	}
+			for i, t := range tag {
 
-// 	return mut
-// }
+				switch i {
+				case 0:
+					if len(t) > 0 {
+						fnm = t
+					} else {
+						if len(fnm) == 0 {
+							fnm = ty.Field(f).Name
+						}
+					}
+
+				default:
+
+					fmt.Println("insert mdb: ", t)
+					switch "__" + strings.ToUpper(t) {
+					case KEY:
+						atrtag = append(atrtag, KEY)
+					}
+				}
+			}
+
+			// check field is a table attribute - makes sense for SQL where schema is fixed, but not for Dynamodb. Only check for Keys.
+			// fmt.Println("check in attrs for ", fnm)
+			if len(attrs) > 0 {
+				if _, ok := attrs[fnm]; !ok {
+					fmt.Println("Continue....")
+					continue
+				}
+			}
+
+			if omit {
+				continue
+			}
+			// match
+			fmt.Printf("++++ Attribute(%s , %#v\n", fnm, atrtag)
+			m := im.Attribute(fnm, vi.Field(f).Interface(), atrtag...)
+			if m == nil {
+				return nil, im.GetError()[0]
+			}
+		}
+
+	case Update:
+
+		// table attribute names
+		for f := 0; f < ty.NumField(); f++ {
+
+			var (
+				fnm    string
+				omit   bool
+				atrtag []Modifier
+			)
+			// ignore tag
+			if ty.Field(f).Tag.Get("mdb") == "-" {
+				continue
+			}
+			//
+			// non-mdb
+			//
+			if len(tag_) > 0 {
+				// support tag dynamodbav
+				switch tag_[0] {
+				case "dynamodbav":
+
+					if ty.Field(f).Tag.Get(tag_[0]) == "-" {
+						continue
+					}
+					// capture attribute alias
+
+					tags := strings.Split(ty.Field(f).Tag.Get(tag_[0]), ",")
+					for i, t := range tags {
+
+						switch i {
+						case 0:
+							if len(t) > 0 {
+								fnm = t
+								fmt.Println("***attribute renamed to : ", fnm)
+							} else {
+								fnm = ty.Field(f).Name
+								fmt.Println("***attribute  : ", fnm)
+							}
+
+						default:
+							switch strings.ToLower(t) {
+							case "binaryset":
+								atrtag = append(atrtag, "_BINARYSET")
+							case "numberset":
+								atrtag = append(atrtag, "_NUMBERSET")
+							case "stringset":
+								atrtag = append(atrtag, "_STRINGSET")
+							case "string":
+								switch vi.Field(f).Type().Kind() {
+								case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+									atrtag = append(atrtag, "_string")
+								case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+									atrtag = append(atrtag, "_string")
+								case reflect.Float32, reflect.Float64:
+									atrtag = append(atrtag, "_string")
+								default:
+									fmt.Println("tag string not appropriate for type")
+								}
+							case "omitempty":
+								if vi.Field(f).IsZero() {
+									omit = true
+								}
+							case "omitemptyelem":
+								switch vi.Field(f).Type().Kind() {
+								case reflect.Slice, reflect.Map:
+									if vi.Field(f).IsZero() {
+										omit = true
+									}
+								default:
+									return nil, fmt.Errorf("error in tag for field %s. nullemptyelem applies to slice or map only. ", ty.Field(f).Name)
+								}
+							case "nullempty":
+								if vi.Field(f).IsZero() {
+									atrtag = append(atrtag, SETNULL)
+								}
+							case "nullemptyelem":
+								switch vi.Field(f).Type().Kind() {
+								case reflect.Slice, reflect.Map:
+									if vi.Field(f).IsZero() {
+										atrtag = append(atrtag, SETNULL)
+									}
+								default:
+									return nil, fmt.Errorf("error in tag for field %s. nullemptyelem applies to slice or map only. ", ty.Field(f).Name)
+								}
+							}
+						}
+					}
+				}
+			}
+			//
+			// mdb
+			//
+			tag := strings.Split(ty.Field(f).Tag.Get("mdb"), ",")
+			for i, t := range tag {
+
+				switch i {
+				case 0:
+					if len(t) > 0 {
+						fnm = t
+					} else {
+						if len(fnm) == 0 {
+							fnm = ty.Field(f).Name
+						}
+					}
+					fmt.Println("field: ", fnm)
+
+				default:
+
+					fmt.Println("update mdb: ", t)
+					switch "__" + strings.ToUpper(t) {
+					case KEY:
+						atrtag = append(atrtag, KEY)
+
+					case "__INCREMENT":
+						atrtag = append(atrtag, ADD)
+						// assign numeral 1 to field value
+						switch vi.Field(f).Kind() {
+						case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+							if vi.Field(f).CanSet() {
+								vi.Field(f).SetInt(1)
+							} else {
+								return nil, fmt.Errorf(`reflect.Value.SetInt using unaddressable value. Pass in address of struct to Submit()`)
+							}
+						case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+							if vi.Field(f).CanSet() {
+								vi.Field(f).SetInt(1)
+							} else {
+								return nil, fmt.Errorf(`reflect.Value.SetInt using unaddressable value. Pass in address of struct to Submit()`)
+							}
+						case reflect.Float32, reflect.Float64:
+							if vi.Field(f).CanSet() {
+								vi.Field(f).SetFloat(1.0)
+							} else {
+								return nil, fmt.Errorf(`reflect.Value.SetFloat using unaddressable value. Pass in address of struct to Submit()`)
+							}
+						}
+
+					case "__DECREMENT":
+						atrtag = append(atrtag, SUBTRACT)
+						// assign numeral 1 to field value
+						switch vi.Field(f).Kind() {
+						case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+							if vi.Field(f).CanSet() {
+								vi.Field(f).SetInt(1)
+							} else {
+								return nil, fmt.Errorf(`reflect.Value.SetInt using unaddressable value. Pass in address of struct to Submit()`)
+							}
+						case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+							if vi.Field(f).CanSet() {
+								vi.Field(f).SetInt(1)
+							} else {
+								return nil, fmt.Errorf(`reflect.Value.SetInt using unaddressable value. Pass in address of struct to Submit()`)
+							}
+						case reflect.Float32, reflect.Float64:
+							if vi.Field(f).CanSet() {
+								vi.Field(f).SetFloat(1.0)
+							} else {
+								return nil, fmt.Errorf(`reflect.Value.SetFloat using unaddressable value. Pass in address of struct to Submit()`)
+							}
+						}
+
+					case "__MULTIPLY":
+						atrtag = append(atrtag, MULTIPLY)
+						switch vi.Field(f).Kind() {
+						case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+						case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+						case reflect.Float32, reflect.Float64:
+						default:
+							return nil, fmt.Errorf(`Multiply applies to number type only`)
+
+						}
+					}
+				}
+
+				fmt.Println("tag: ", t)
+
+			}
+
+			// check field is a table attribute - makes sense for SQL where schema is fixed, but not for Dynamodb. Only check for Keys.
+			// fmt.Println("check in attrs for ", fnm)
+			if len(attrs) > 0 {
+				if _, ok := attrs[fnm]; !ok {
+					fmt.Println("Continue....")
+					continue
+				}
+			}
+
+			if omit {
+				continue
+			}
+			// match
+			fmt.Printf("**** Attribute(%s , %#v\n", fnm, atrtag)
+			m := im.Attribute(fnm, vi.Field(f).Interface(), atrtag...)
+			if m == nil {
+				return nil, im.GetError()[0]
+			}
+		}
+	case Delete:
+	}
+	ms_ := im.GetMembers()
+	im.SetMembers(msOld)
+
+	return ms_, nil
+}
 
 // func NewMutation(tab tbl.Name, opr StdMut, keys []key.Key) *Mutation {
 func NewMutation(tab tbl.Name, opr StdMut) *Mutation {
@@ -922,71 +1687,10 @@ func NewMutation(tab tbl.Name, opr StdMut) *Mutation {
 }
 
 // AddKeys assigns keys passed into  tx.MergeMutation
-func (m *Mutation) AddKeys(keys []key.Key) {
-	for _, v := range keys {
-		m.Key(v.Name, v.Value)
-	}
-}
-
-// FindMutation searches the associated batch of mutations based on argument values.
-// func (bm *Mutations) FindMutation(table tbl.Name, pk uuid.UID, sk string) *Mutation {
-// 	var (
-// 		ok               bool
-// 		sm               *Mutation
-// 		match            int
-// 		pkMatch, skMatch bool
-// 	)
-// 	for _, sm_ := range *bm {
-
-// 		if sm, ok = sm_.(*Mutation); !ok {
-// 			continue
-// 		}
-// 		if sm.opr == Merge {
-// 			panic(fmt.Errorf("Merge mutation cannot be used with a MergeMuatation method"))
-// 		}
-// 		if sm.tbl != table || !(sm.opr == Insert || sm.opr == Update) {
-// 			continue
-// 		}
-// 		match = 0
-// 		pkMatch, skMatch = false, false
-
-// 		// cycle thru members of source mutation.
-// 		for _, attr := range sm.ms {
-
-// 			switch attr.Name {
-// 			case "PKey":
-// 				match++
-// 				if u, ok := attr.Value.(uuid.UID); ok {
-
-// 					if bytes.Equal(u, pk) {
-// 						pkMatch = true
-// 					}
-
-// 				} else if u, ok := attr.Value.([]byte); ok {
-// 					if bytes.Equal(u, pk) {
-// 						pkMatch = true
-// 					}
-// 				}
-
-// 			case "SortK":
-// 				match++
-// 				if vsk, ok := attr.Value.(string); !ok {
-// 					panic(fmt.Errorf("FindMutation iconcistency. Expected string for sortk interface value got %T", attr.Value))
-// 				} else if vsk == sk {
-// 					skMatch = true
-// 				}
-// 			}
-// 			if match == 2 {
-// 				if pkMatch && skMatch {
-// 					return sm
-// 				} else {
-// 					break
-// 				}
-// 			}
-// 		}
-
+// func (m *Mutation) AddKeys(keys []key.Key) {
+// 	for _, v := range keys {
+// 		m.Key(v.Name, v.Value)
 // 	}
-// 	return nil
 // }
 
 // FindMutation searches the associated batch of mutations based on key values.
@@ -1017,7 +1721,7 @@ func (bm *Mutations) FindMutation(table tbl.Name, keys []key.MergeKey) (*Mutatio
 			for _, attr := range sm.ms {
 
 				// evaluate Partition Key and Sortk types (for DYnamodb these are scalar types, number, string, [])
-				if k.Name != attr.Name {
+				if k.Name != attr.name {
 					continue
 				}
 
@@ -1027,13 +1731,13 @@ func (bm *Mutations) FindMutation(table tbl.Name, keys []key.MergeKey) (*Mutatio
 					if k.DBtype != "N" {
 						switch k.DBtype {
 						case "B":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a binary type, supplied a number type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a binary type, supplied a number type", attr.name)
 						case "S":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a string type,  supplied a number type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a string type,  supplied a number type", attr.name)
 						}
 					}
-					if av, ok := attr.Value.(int64); !ok {
-						return nil, fmt.Errorf("in find mutation attribute %q. Expected an int64 type but supplied a %T type", attr.Name, attr.Value)
+					if av, ok := attr.value.(int64); !ok {
+						return nil, fmt.Errorf("in find mutation attribute %q. Expected an int64 type but supplied a %T type", attr.name, attr.value)
 					} else if x == av {
 						match++
 					}
@@ -1042,13 +1746,13 @@ func (bm *Mutations) FindMutation(table tbl.Name, keys []key.MergeKey) (*Mutatio
 					if k.DBtype != "N" {
 						switch k.DBtype {
 						case "B":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a binary type, supplied a number type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a binary type, supplied a number type", attr.name)
 						case "S":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a string type,  supplied a number type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a string type,  supplied a number type", attr.name)
 						}
 					}
-					if av, ok := attr.Value.(int); !ok {
-						return nil, fmt.Errorf("in find mutation attribute %q. Expected an int type but supplied a %T type", attr.Name, attr.Value)
+					if av, ok := attr.value.(int); !ok {
+						return nil, fmt.Errorf("in find mutation attribute %q. Expected an int type but supplied a %T type", attr.name, attr.value)
 					} else if x == av {
 						match++
 					}
@@ -1057,13 +1761,13 @@ func (bm *Mutations) FindMutation(table tbl.Name, keys []key.MergeKey) (*Mutatio
 					if k.DBtype != "N" {
 						switch k.DBtype {
 						case "B":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a binary type, supplied a number type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a binary type, supplied a number type", attr.name)
 						case "S":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a string type,  supplied a number type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a string type,  supplied a number type", attr.name)
 						}
 					}
-					if av, ok := attr.Value.(float64); !ok {
-						return nil, fmt.Errorf("in find mutation attribute %q. Expected a float64 type but supplied a %T type", attr.Name, attr.Value)
+					if av, ok := attr.value.(float64); !ok {
+						return nil, fmt.Errorf("in find mutation attribute %q. Expected a float64 type but supplied a %T type", attr.name, attr.value)
 					} else if x == av {
 						match++
 					}
@@ -1072,13 +1776,13 @@ func (bm *Mutations) FindMutation(table tbl.Name, keys []key.MergeKey) (*Mutatio
 					if k.DBtype != "S" {
 						switch k.DBtype {
 						case "B":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a binary type, supplied a string type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a binary type, supplied a string type", attr.name)
 						case "N":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a number type, supplied a string type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a number type, supplied a string type", attr.name)
 						}
 					}
-					if av, ok := attr.Value.(string); !ok {
-						return nil, fmt.Errorf("in find mutation attribute %q. Expected a string type but suppled a %T type", attr.Name, attr.Value)
+					if av, ok := attr.value.(string); !ok {
+						return nil, fmt.Errorf("in find mutation attribute %q. Expected a string type but suppled a %T type", attr.name, attr.value)
 					} else if x == av {
 						match++
 					}
@@ -1087,13 +1791,13 @@ func (bm *Mutations) FindMutation(table tbl.Name, keys []key.MergeKey) (*Mutatio
 					if k.DBtype != "B" {
 						switch k.DBtype {
 						case "S":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a string type, supplied a binary type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a string type, supplied a binary type", attr.name)
 						case "N":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a number type, supplied a binary type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a number type, supplied a binary type", attr.name)
 						}
 					}
-					if av, ok := attr.Value.([]byte); !ok {
-						return nil, fmt.Errorf("in find mutation attribute %q. Expected a binary ([]byte type but is a %T type", attr.Name, attr.Value)
+					if av, ok := attr.value.([]byte); !ok {
+						return nil, fmt.Errorf("in find mutation attribute %q. Expected a binary ([]byte type but is a %T type", attr.name, attr.value)
 					} else if bytes.Equal(x, av) {
 						match++
 					}
@@ -1102,14 +1806,14 @@ func (bm *Mutations) FindMutation(table tbl.Name, keys []key.MergeKey) (*Mutatio
 					if k.DBtype != "B" {
 						switch k.DBtype {
 						case "S":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a string type, supplied a binary type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a string type, supplied a binary type", attr.name)
 						case "N":
-							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a number type, supplied a binary type", attr.Name)
+							return nil, fmt.Errorf("value is of wrong datatype for %q. Expected a number type, supplied a binary type", attr.name)
 						}
 					}
-					if av, ok := attr.Value.(uuid.UID); !ok {
-						if av, ok := attr.Value.([]uint8); !ok {
-							return nil, fmt.Errorf("in find mutation attribute %q. Expected a binary ([]uint8) type but is a %T type", attr.Name, attr.Value)
+					if av, ok := attr.value.(uuid.UID); !ok {
+						if av, ok := attr.value.([]uint8); !ok {
+							return nil, fmt.Errorf("in find mutation attribute %q. Expected a binary ([]uint8) type but is a %T type", attr.name, attr.value)
 						} else if bytes.Equal([]byte(x), []byte(av)) {
 							match++
 						}

@@ -68,6 +68,7 @@ type TxHandle struct {
 	Tag string
 	api db.API
 	ctx context.Context
+	//	executed bool
 	//
 	dbHdl   db.Handle // database handle. mysql sql.DB, [default: either, spanner spanner.NewClient, dynamodb dynamodb.New]
 	maxMuts int       // depending on database driver. -1 or param.MaxMutations
@@ -281,6 +282,15 @@ func (h *TxHandle) new(m ...*mut.Mutation) *TxHandle {
 func (q *TxHandle) GetErrors() []error {
 	var es []error
 
+	if q == nil {
+		return es
+	}
+	es = append(es, q.err...)
+
+	if q != nil && q.m == nil {
+		return es
+	}
+
 	for _, m := range *q.m {
 		if m, ok := m.(*mut.Mutation); ok {
 			es = append(es, m.GetError()...)
@@ -294,8 +304,6 @@ func (q *TxHandle) GetErrors() []error {
 			}
 		}
 	}
-
-	es = append(es, q.err...)
 
 	return es
 }
@@ -369,7 +377,7 @@ func (h *TxHandle) MakeBatch() error {
 // NewMutation2 creates.a new mutation of type Insert, Update etc that is passed in.
 // used  in attach-mrege/execute/propagationTarget.go
 // func (h *TxHandle) NewMutation2(table tbl.Name, pk uuid.UID, sk string, opr mut.StdMut) *mut.Mutation {
-// 	keys := []key.Key{key.Key{"PKey", pk}, key.Key{"SortK", sk}}
+// 	keys := []key.xfKey{key.Key{"PKey", pk}, key.Key{"SortK", sk}}
 // 	// validate merge keys with actual table keys
 // 	tableKeys, err := h.dbHdl.GetTableKeys(h.ctx, string(table))
 // 	if err != nil {
@@ -384,85 +392,124 @@ func (h *TxHandle) MakeBatch() error {
 // 	return m
 // }
 
-func (h *TxHandle) NewMutation(table tbl.Name, opr mut.StdMut, keys []key.Key) *mut.Mutation {
-	//m := mut.NewMutation(table, opr, keys)
+// func (h *TxHandle) NewMutation(table tbl.Name, opr mut.StdMut, keys []key.Key) *mut.Mutation {
+
+// 	if h.done {
+// 		h.addErr(fmt.Errorf("Mutation Handle %s, has already been executed. Create a new handle (using New(), NewTx(), NewBatch())  before defining mutations.", h.Tag))
+// 		return nil
+// 	}
+// 	//m := mut.NewMutation(table, opr, keys)
+// 	// validate merge keys with actual table keys
+// 	meta, err := h.dbHdl.GetTableMeta(h.ctx, string(table))
+// 	if err != nil {
+// 		h.addErr(fmt.Errorf("Error in finding table keys for table %q: %w", table, err))
+// 		return nil
+// 	}
+
+// 	m := mut.NewMutation(table, opr)
+// 	//m.AddTableKeys(meta.GetKeys())
+//	m.AddTableMeta(meta)
+// 	//	m.AddKeys(keys)
+// 	h.add(m)
+// 	return m
+// }
+
+func (h *TxHandle) NewInsert(table tbl.Name) *mut.Mutation {
+
+	if h.done {
+		h.addErr(fmt.Errorf("Mutation Handle %s, has already been executed. Create a new handle (using New(), NewTx(), NewBatch())  before defining mutations.", h.Tag))
+		return nil
+	}
 	// validate merge keys with actual table keys
-	tableKeys, err := h.dbHdl.GetTableKeys(h.ctx, string(table))
+	meta, err := h.dbHdl.GetTableMeta(h.ctx, string(table))
 	if err != nil {
 		h.addErr(fmt.Errorf("Error in finding table keys for table %q: %w", table, err))
 		return nil
 	}
-
-	m := mut.NewMutation(table, opr)
-	m.AddTableKeys(tableKeys)
-	m.AddKeys(keys)
-	h.add(m)
-	return m
-}
-
-func (h *TxHandle) NewInsert(table tbl.Name) *mut.Mutation {
-	m := mut.NewInsert(table)
-	//TODO: h should be checked - it might be a standard API but this mutation might be a second mutation so its not allowed.
+	m := mut.NewInsert(table, h.Tag)
+	m.AddTableMeta(meta)
 	h.add(m)
 	return m
 }
 
 func (h *TxHandle) NewUpdate(table tbl.Name) *mut.Mutation {
+
+	if h.done {
+		h.addErr(fmt.Errorf("Mutation Handle %s, has already been executed. Create a new handle (using New(), NewTx(), NewBatch())  before defining mutations", h.Tag))
+		return nil
+	}
 	if h.api == db.BatchAPI {
 		panic(fmt.Errorf("Cannot have an Update operation included in a batch")) // TODO: this is for dynamodb only - make  generic
 	}
 
+	// get table/index keys from cache // maybe each db needs to arrange its own cache as well.
+	// AddTableKeys to mutation struct
+
 	// validate merge keys with actual table keys
-	tableKeys, err := h.dbHdl.GetTableKeys(h.ctx, string(table))
+	meta, err := h.dbHdl.GetTableMeta(h.ctx, string(table))
 	if err != nil {
 		h.addErr(fmt.Errorf("Error in finding table keys for table %q: %w", table, err))
 		return nil
 	}
 
-	m := mut.NewUpdate(table)
-	m.AddTableKeys(tableKeys)
-	//TODO: h should be checked - it might be a standard API but this mutation might be a second mutation so its not allowed.
+	m := mut.NewUpdate(table, h.Tag)
+	m.AddTableMeta(meta)
 	h.add(m)
 	return m
 }
 
 func (h *TxHandle) NewDelete(table tbl.Name) *mut.Mutation {
+	if h.done {
+		h.addErr(fmt.Errorf("Mutation Handle %s, has already been executed. Create a new handle (using New(), NewTx(), NewBatch())  before defining mutations. ", h.Tag))
+		return nil
+	}
+
 	if h.api == db.BatchAPI {
 		panic(fmt.Errorf("Cannot have an Update operation included in a batch"))
 	}
 
 	// validate merge keys with actual table keys
-	tableKeys, err := h.dbHdl.GetTableKeys(h.ctx, string(table))
+	meta, err := h.dbHdl.GetTableMeta(h.ctx, string(table))
 	if err != nil {
 		h.addErr(fmt.Errorf("Error in finding table keys for table %q: %w", table, err))
 		return nil
 	}
 
-	m := mut.NewDelete(table)
-	m.AddTableKeys(tableKeys)
+	m := mut.NewDelete(table, h.Tag)
+	m.AddTableMeta(meta)
 	h.add(m)
 	return m
 }
 
 func (h *TxHandle) NewMerge(table tbl.Name) *mut.Mutation {
+
+	if h.done {
+		h.addErr(fmt.Errorf("Mutation Handle %s, has already been executed. Create a new handle (using New(), NewTx(), NewBatch())  before defining mutations. ", h.Tag))
+		return nil
+	}
 	if h.api == db.BatchAPI {
 		panic(fmt.Errorf("Cannot have a Merge operation included in a batch"))
 	}
 	// validate merge keys with actual table keys
-	tableKeys, err := h.dbHdl.GetTableKeys(h.ctx, string(table))
+	meta, err := h.dbHdl.GetTableMeta(h.ctx, string(table))
 	if err != nil {
 		h.addErr(fmt.Errorf("Error in finding table keys for table %q: %w", table, err))
 		return nil
 	}
 
-	m := mut.NewMerge(table)
-	m.AddTableKeys(tableKeys)
+	m := mut.NewMerge(table, h.Tag)
+	m.AddTableMeta(meta)
 	h.add(m)
 	return m
 }
 
 // Truncate table
 func (h *TxHandle) NewTruncate(tbs []tbl.Name) {
+
+	if h.done {
+		h.addErr(fmt.Errorf("Mutation Handle %s, has already been executed. Create a new handle (using New(), NewTx(), NewBatch())  before defining mutations. ", h.Tag))
+		return
+	}
 
 	for _, table := range tbs {
 		m := mut.Truncate(table)
@@ -505,8 +552,11 @@ func (h *TxHandle) GetMutation(i int) (*mut.Mutation, error) {
 	var r, b int
 
 	if len(h.batch) == 0 {
-		if i < len(*h.m) {
-			return (*h.m)[i].(*mut.Mutation), nil
+
+		if h.m != nil {
+			if i < len(*h.m) {
+				return (*h.m)[i].(*mut.Mutation), nil
+			}
 		}
 		return nil, fmt.Errorf("GetMutation error. Requested mutation index %d is greater than number of mutations", i)
 	}
@@ -569,19 +619,27 @@ func (h *TxHandle) Execute(m ...*mut.Mutation) error {
 
 	var err error
 
+	if h.done {
+		err := fmt.Errorf("Mutation Handle %s, has already been executed. Create a new mutation handle with New(), NewBatch(), NewTx()", h.Tag)
+		h.addErr(err)
+		return err
+	}
+
+	h.done = true
+
 	if errs := h.GetErrors(); len(errs) > 0 {
 
 		if len(errs) > 1 {
-			return fmt.Errorf("Errors in Tx setup [%d errors] (see system log for complete list): %w", len(errs), errs[0])
+			return fmt.Errorf("Errors in mutations  [%d errors] (see system log for complete list): %w", len(errs), errs[0])
 		}
-		return fmt.Errorf("Error in Tx setup (see system log for complete list): %w", errs[0])
+		return fmt.Errorf("Error in mutations setup (see system log for complete list): %w", errs[0])
 	}
 
-	if h.done {
-		err := fmt.Errorf("Execute() transaction %q has already been executed", h.Tag)
-		mdblog.LogErr(err)
-		return err
-	}
+	// if h.done {
+	// 	err := fmt.Errorf("Execute() transaction %q has already been executed", h.Tag)
+	// 	mdblog.LogErr(err)
+	// 	return err
+	// }
 	// append passed in mutation(s) to transaction
 	if len(m) > 0 {
 		for _, v := range m {
@@ -605,6 +663,8 @@ func (h *TxHandle) Execute(m ...*mut.Mutation) error {
 		}
 	}
 
+	//if h.GetSubmit
+
 	h.TransactionStart = time.Now()
 
 	// TODO: make h.prepare a db.Option
@@ -616,12 +676,13 @@ func (h *TxHandle) Execute(m ...*mut.Mutation) error {
 	h.TransactionEnd = time.Now()
 
 	if err != nil {
+		h.addErr(err)
 		return err
 	}
 	// nullify pointers so transaction cannot be repeated.
-	h.m = nil
-	h.batch = nil
-	h.done = true
+	// h.m = nil
+	// h.batch = nil
+	//h.done = true
 
 	return nil
 
@@ -645,15 +706,15 @@ func (h *TxHandle) MergeMutation(table tbl.Name, opr mut.StdMut, keys []key.Key)
 	}
 
 	// validate merge keys with actual table keys
-	tableKeys, err := h.dbHdl.GetTableKeys(h.ctx, string(table))
+	meta, err := h.dbHdl.GetTableMeta(h.ctx, string(table))
 	if err != nil {
 		h.addErr(fmt.Errorf("Error in finding table keys for table %q: %w", table, err))
 		return h
 	}
 
 	// check tableKeys match merge keys - we need to match all keys to find source mutation
-	if len(keys) != len(tableKeys) {
-		h.addErr(fmt.Errorf("Error in Tx tag %q. Number of keys supplied (%d) do not match number of keys on table (%d)", h.Tag, len(keys), len(tableKeys)))
+	if len(keys) != len(meta.GetKeys()) {
+		h.addErr(fmt.Errorf("Error in Tx tag %q. Number of keys supplied (%d) do not match number of keys on table (%d)", h.Tag, len(keys), len(meta.GetKeys())))
 		return h
 	}
 	// generate ordered list of merge keys based on table key order and argument keys.
@@ -665,7 +726,7 @@ func (h *TxHandle) MergeMutation(table tbl.Name, opr mut.StdMut, keys []key.Key)
 		var mean string
 
 		// tableKeys are correctly ordered based on table def
-		for ii, kk := range tableKeys {
+		for ii, kk := range meta.GetKeys() {
 			if kk.Name == k.Name {
 				found = true
 				mergeKeys[ii].Name = k.Name
@@ -693,8 +754,9 @@ func (h *TxHandle) MergeMutation(table tbl.Name, opr mut.StdMut, keys []key.Key)
 
 	h.am = mut.NewMutation(table, opr) //, keys)
 
-	h.am.AddTableKeys(tableKeys) // added 27 Dec 2022
-	h.am.AddKeys(keys)           // added 27 Dec 2022
+	h.am.AddTableMeta(meta)
+	// h.am.AddTableKeys(tableKeys) // added 27 Dec 2022
+	// h.am.AddKeys(keys)           // added 27 Dec 2022
 
 	h.sm = h.findSourceMutation(table, mergeKeys)
 	if h.sm == nil {
@@ -744,14 +806,14 @@ func (h *TxHandle) findSourceMutation(table tbl.Name, keys []key.MergeKey) *mut.
 func (h *TxHandle) GetMergedMutation(table tbl.Name, keys []key.Key) (*mut.Mutation, error) {
 
 	// validate merge keys with actual table keys
-	tableKeys, err := h.dbHdl.GetTableKeys(h.ctx, string(table))
+	meta, err := h.dbHdl.GetTableMeta(h.ctx, string(table))
 	if err != nil {
 		return nil, fmt.Errorf("Error in finding table keys for table %q: %w", table, err)
 	}
-	mdblog.LogDebug(fmt.Sprintf("GetMergedMutation: tableKeys: %v", tableKeys))
+	mdblog.LogDebug(fmt.Sprintf("GetMergedMutation: tableKeys: %v", meta.GetKeys()))
 	// check tableKeys match merge keys - we need to match all keys to find source mutation
-	if len(keys) != len(tableKeys) {
-		return nil, fmt.Errorf("Error in Tx tag %q. Number of keys supplied (%d) do not match number of keys on table (%d)", h.Tag, len(keys), len(tableKeys))
+	if len(keys) != len(meta.GetKeys()) {
+		return nil, fmt.Errorf("Error in Tx tag %q. Number of keys supplied (%d) do not match number of keys on table (%d)", h.Tag, len(keys), len(meta.GetKeys()))
 	}
 	// generate ordered list of keys based on table key order and argument keys.
 	mergeKeys := make([]key.MergeKey, len(keys), len(keys))
@@ -762,7 +824,7 @@ func (h *TxHandle) GetMergedMutation(table tbl.Name, keys []key.Key) (*mut.Mutat
 		var mean string
 
 		// tableKeys are correctly ordered based on table def
-		for ii, kk := range tableKeys {
+		for ii, kk := range meta.GetKeys() {
 			if kk.Name == k.Name {
 				found = true
 				mergeKeys[ii].Name = k.Name
@@ -823,7 +885,7 @@ func (h *TxHandle) GetMergedMutation(table tbl.Name, keys []key.Key) (*mut.Mutat
 // Alternate AddMember associated with NewInsert, NewUpdate, NewMerge, member of Mutation (not TxHandel)
 func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifier) *TxHandle {
 
-	var opr mut.Modifier
+	var opr mut.ModifierS
 	// am - active mutation
 	// bm - batch of batch mutations
 	// sm - source mutation
@@ -872,38 +934,37 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 		for i, v := range sa { // source mutation attributes
 
 			// all members of active mutation match previous mutation - found source/original mutation
-			if v.Name != attr {
+			if v.Name() != attr {
 				continue
 			}
 			// found attribute belonging to source mutation
 			found = true
-			opr = v.Mod
+			opr = *v.GetModifier()
 			if len(mod_) > 0 {
-				opr = mod_[0] // override source attributes modifer with current mutation attribute modifier
+				opr = mod_ // override source attributes modifer with current mutation attribute modifier
 			}
-			if opr == mut.Remove {
+			if opr.Exists(mut.REMOVE) {
 				// set source member operator to remove
-				v.Mod = mut.Remove // TODO: v.SetRemove()??, only occassion where Mod is assigned
+				v.GetModifier().Assign(mut.REMOVE) // TODO: v.SetRemove()??, only occassion where Mod is assigned
 				return h
 			}
 
-			switch x := v.Value.(type) {
+			switch x := v.Value().(type) {
 
 			case int64:
 
 				if n, ok := value.(int64); !ok {
 					panic(fmt.Errorf("AddMember2: Expected int64 got passed in value of %T", value))
 				} else {
-					switch opr {
-					case mut.Add:
+					if v.GetModifier().Exists(mut.ADD) {
 						x += n
-						sa[i].Value = x
-					case mut.Subtract:
+						sa[i].SetValue(x)
+					} else if v.GetModifier().Exists(mut.SUBTRACT) {
 						x -= n
-						sa[i].Value = x
-					case mut.Set:
-						sa[i].Value = x
-					default:
+						sa[i].SetValue(x)
+					} else if v.GetModifier().Exists(mut.SET) {
+						sa[i].SetValue(x)
+					} else {
 						panic(fmt.Errorf("Expected member operator of Set, Add, Subtract got %q", opr))
 					}
 				}
@@ -913,16 +974,15 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 				if n, ok := value.(int); !ok {
 					panic(fmt.Errorf("AddMember2: Expected int got passed in value of %T", value))
 				} else {
-					switch opr {
-					case mut.Add:
+					if v.GetModifier().Exists(mut.ADD) {
 						x += n
-						sa[i].Value = x
-					case mut.Subtract:
+						sa[i].SetValue(x)
+					} else if v.GetModifier().Exists(mut.SUBTRACT) {
 						x -= n
-						sa[i].Value = x
-					case mut.Set:
-						sa[i].Value = x
-					default:
+						sa[i].SetValue(x)
+					} else if v.GetModifier().Exists(mut.SET) {
+						sa[i].SetValue(x)
+					} else {
 						panic(fmt.Errorf("Expected member operator of Set, Add, Subtract got %q", opr))
 					}
 				}
@@ -932,16 +992,15 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 				if n, ok := value.(float64); !ok {
 					panic(fmt.Errorf("AddMember2: Expected float64 got passed in value of %T", value))
 				} else {
-					switch opr {
-					case mut.Add:
+					if v.GetModifier().Exists(mut.ADD) {
 						x += n
-						sa[i].Value = x
-					case mut.Subtract:
+						sa[i].SetValue(x)
+					} else if v.GetModifier().Exists(mut.SUBTRACT) {
 						x -= n
-						sa[i].Value = x
-					case mut.Set:
-						sa[i].Value = x
-					default:
+						sa[i].SetValue(x)
+					} else if v.GetModifier().Exists(mut.SET) {
+						sa[i].SetValue(x)
+					} else {
 						panic(fmt.Errorf("Expected member operator of Set, Add, Subtract got %q", opr))
 					}
 				}
@@ -951,30 +1010,29 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 				if _, ok := value.(string); !ok {
 					panic(fmt.Errorf("AddMember2: Expected string got passed in value of %T", value))
 				}
-				sa[i].Value = value
+				sa[i].SetValue(value)
 
 			case bool:
 
 				if _, ok := value.(bool); !ok {
 					panic(fmt.Errorf("AddMember2: Expected bool got passed in value of %T", value))
 				}
-				sa[i].Value = value
+				sa[i].SetValue(value)
 
 			case [][]byte:
 
 				if _, ok := value.([][]byte); !ok {
-					panic(fmt.Errorf("Expected member type [][]byte, passed in value of type %T for attribute %s ", value, v.Name))
+					panic(fmt.Errorf("Expected member type [][]byte, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				switch opr {
-				case mut.Set:
-					sa[i].Value = x
-				default: // Append
+				if v.GetModifier().Exists(mut.SET) {
+					sa[i].SetValue(x)
+				} else {
 					if s, ok := value.([][]byte); !ok {
-						panic(fmt.Errorf("AddMember2: Expected []int64 got %T", x))
+						panic(fmt.Errorf("AddMember2: Expected []string got %T", x))
 					} else {
 						x = append(x, s...)
-						sa[i].Value = x
-						//	fmt.Printf("====. merged [][]byte  %s %d\n", sa[i].Name, len(sa[i].Value.([][]byte)))
+						sa[i].SetValue(x)
+						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
 				}
 
@@ -982,106 +1040,98 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 
 				if _, ok := value.([]uuid.UID); !ok {
 					if _, ok := value.([][]byte); !ok {
-						panic(fmt.Errorf("Expected member type []uuid.UID, passed in value of type %T for attribute %s ", value, v.Name))
+						panic(fmt.Errorf("Expected member type []uuid.UID, passed in value of type %T for attribute %s ", value, v.Name()))
 					}
 				}
-				switch opr {
-				case mut.Set:
-					// set should override append in put
-					sa[i].Value = x
-				default: //
-					// Append appropriate for updateItem
+				if v.GetModifier().Exists(mut.SET) {
+					sa[i].SetValue(x)
+				} else {
 					if s, ok := value.([]uuid.UID); !ok {
-						panic(fmt.Errorf("AddMember2: Expected []int64 got %T", x))
+						panic(fmt.Errorf("AddMember2: Expected []string got %T", x))
 					} else {
 						x = append(x, s...)
-						sa[i].Value = x
-						//	fmt.Printf("====. merged []uuid.UID %s %d\n", sa[i].Name, len(sa[i].Value.([][]uuid.UID)))
+						sa[i].SetValue(x)
+						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
 				}
 
 			case []string:
 				if _, ok := value.([]string); !ok {
-					panic(fmt.Errorf("Expected member type []string, passed in value of type %T for attribute %s ", value, v.Name))
+					panic(fmt.Errorf("Expected member type []string, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				switch opr {
-				case mut.Set:
-					sa[i].Value = x
-				default: // Append
+				if v.GetModifier().Exists(mut.SET) {
+					sa[i].SetValue(x)
+				} else {
 					if s, ok := value.([]string); !ok {
 						panic(fmt.Errorf("AddMember2: Expected []string got %T", x))
 					} else {
 						x = append(x, s...)
-						sa[i].Value = x
-						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].Value.([]int)))
+						sa[i].SetValue(x)
+						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
 				}
 
 			case []int64:
 				if _, ok := value.([]int64); !ok {
-					panic(fmt.Errorf("Expected member type []int64, passed in value of type %T for attribute %s ", value, v.Name))
+					panic(fmt.Errorf("Expected member type []int64, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				switch opr {
-				case mut.Set:
-					sa[i].Value = x
-				default: // Append
+				if v.GetModifier().Exists(mut.SET) {
+					sa[i].SetValue(x)
+				} else {
 					if s, ok := value.([]int64); !ok {
 						panic(fmt.Errorf("AddMember2: Expected []int64 got %T", x))
 					} else {
 						x = append(x, s...)
-						sa[i].Value = x
-						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].Value.([]int)))
+						sa[i].SetValue(x)
+						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
 				}
 
 			case []int:
 				if _, ok := value.([]int); !ok {
-					panic(fmt.Errorf("Expected member type []int, passed in value of type %T for attribute %s ", value, v.Name))
+					panic(fmt.Errorf("Expected member type []int, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				switch opr {
-				case mut.Set:
-					sa[i].Value = x
-				default: // Append
+				if v.GetModifier().Exists(mut.SET) {
+					sa[i].SetValue(x)
+				} else { // Append
 					if s, ok := value.([]int); !ok {
 						panic(fmt.Errorf("AddMember2: Expected []int64 got %T", x))
 					} else {
 						x = append(x, s...)
-						sa[i].Value = x
-						//	fmt.Printf(" =. merged %s %d\n", sa[i].Name, len(sa[i].Value.([]int)))
+						sa[i].SetValue(x)
+						//	fmt.Printf(" =. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
 				}
 
 			case []float64:
 				if _, ok := value.([]float64); !ok {
-					panic(fmt.Errorf("Expected member type []float64, passed in value of type %T for attribute %s ", value, v.Name))
+					panic(fmt.Errorf("Expected member type []float64, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				switch opr {
-				case mut.Set:
-					sa[i].Value = x
-				default: // Append
+				if v.GetModifier().Exists(mut.SET) {
+					sa[i].SetValue(x)
+				} else { // Append
 					if s, ok := value.([]float64); !ok {
 						panic(fmt.Errorf("AddMember2: Expected []float64 got %T", x))
 					} else {
 						x = append(x, s...)
-						sa[i].Value = x
-						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].Value.([]int)))
+						sa[i].SetValue(x)
+						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
 				}
 
 			case []bool:
 				if _, ok := value.([]bool); !ok {
-					panic(fmt.Errorf("Expected member type []bool, passed in value of type %T for attribute %s ", value, v.Name))
+					panic(fmt.Errorf("Expected member type []bool, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				switch opr {
-				case mut.Set:
-					sa[i].Value = x
-				default: // Append
+				if v.GetModifier().Exists(mut.SET) {
+					sa[i].SetValue(x)
+				} else { // Append
 					if s, ok := value.([]bool); !ok {
 						panic(fmt.Errorf("AddMember2: Expected []int64 got %T", x))
 					} else {
 						x = append(x, s...)
-						sa[i].Value = x
-						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].Value.([]int)))
+						sa[i].SetValue(x)
+						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
 				}
 			}

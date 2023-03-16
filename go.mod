@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.18.0
 	github.com/go-sql-driver/mysql v1.7.0
 	github.com/satori/go.uuid v1.2.0
+	golang.org/x/text v0.3.0
 )
 
 require (

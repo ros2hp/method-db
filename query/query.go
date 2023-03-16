@@ -120,6 +120,7 @@ type Option struct {
 	Val  interface{}
 }
 
+// TODO: where is tabKeys
 type QueryHandle struct {
 	Tag    string
 	config []Option
@@ -185,6 +186,8 @@ type QueryHandle struct {
 	groupby string
 	// Values
 	values []interface{}
+	//
+	sql string
 }
 
 func New(tbl tbl.Name, label string, idx ...tbl.Name) *QueryHandle {
@@ -276,6 +279,14 @@ func (q *QueryHandle) GetConfig(s string) interface{} {
 		}
 	}
 	return nil
+}
+
+func (q *QueryHandle) SaveSQL(s string) {
+	q.sql = s
+}
+
+func (q *QueryHandle) GetSQL() string {
+	return q.sql
 }
 
 func (q *QueryHandle) qh() {}
@@ -824,6 +835,7 @@ func (q *QueryHandle) appendFilter(a string, v interface{}, bcd BoolCd, e ...str
 	q.attr = append(q.attr, at)
 
 }
+
 func (q *QueryHandle) Filter(a string, v interface{}, e ...string) *QueryHandle {
 
 	var found bool
@@ -1059,25 +1071,26 @@ func (q *QueryHandle) Select(a_ ...interface{}) *QueryHandle {
 					}
 				} else {
 					name = tgname
-					i := strings.Index(tgname, ",")
-					if i > 0 {
-						name = tgname[:i]
-					}
 				}
+				i := strings.Index(name, ",")
+				if i > -1 {
+					name = name[:i]
+				}
+				fmt.Printf("in Select(), name = %q\n", name)
 
 				switch {
 				case name == "-":
 				case len(name) > 7 && strings.ToLower(name[:8]) == "literal:":
 					at := &Attr{name: f.Name, aty: IsFetch, literal: name[8:]}
 					q.attr = append(q.attr, at)
+				case len(name) == 0:
+					at := &Attr{name: f.Name, aty: IsFetch}
+					q.attr = append(q.attr, at)
 				default:
 					at := &Attr{name: name, aty: IsFetch}
 					q.attr = append(q.attr, at)
-
 				}
-
 			}
-
 		}
 	} else {
 		panic(fmt.Errorf("QueryHandle Select(): expected a struct got %s", st.Kind()))
@@ -1124,10 +1137,10 @@ func (q *QueryHandle) rSelect(nm string, st reflect.Type) {
 				}
 			} else {
 				name = tgname
-				i := strings.Index(tgname, ",")
-				if i > 0 {
-					name = tgname[:i]
-				}
+			}
+			i := strings.Index(name, ",")
+			if i > -1 {
+				name = name[:i]
 			}
 
 			switch {
@@ -1135,15 +1148,16 @@ func (q *QueryHandle) rSelect(nm string, st reflect.Type) {
 			case len(name) > 7 && strings.ToLower(name[:8]) == "literal:":
 				at := &Attr{name: f.Name, aty: IsFetch, literal: name[8:]}
 				q.attr = append(q.attr, at)
+			case len(name) == 0:
+				at := &Attr{name: f.Name, aty: IsFetch}
+				q.attr = append(q.attr, at)
 			default:
 				at := &Attr{name: name, aty: IsFetch}
 				q.attr = append(q.attr, at)
 
 			}
-
 		}
 	}
-
 }
 
 // HasInstring used in tx.query.exQuery() to confirm bind variable is a slice

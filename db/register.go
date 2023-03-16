@@ -35,7 +35,7 @@ type DBHandle interface {
 	String() string
 	RetryOp(error) bool
 	//
-	GetTableKeys(context.Context, string) ([]key.TableKey, error)
+	GetTableMeta(context.Context, string) (*key.TabMeta, error)
 	//
 }
 

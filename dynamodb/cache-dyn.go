@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/ros2hp/method-db/key"
 	"github.com/ros2hp/method-db/log"
 	"github.com/ros2hp/method-db/query"
 
@@ -61,6 +62,7 @@ func (p *queryCacheT) touchEntry(qTag queryTag, e *qryEntry) {}
 
 type tabEntry struct {
 	dto *dynamodb.DescribeTableOutput
+	m   *key.TabMeta
 	ch  chan struct{}
 }
 
@@ -145,39 +147,6 @@ func (p *queryCacheT) fetchQuery(ctx context.Context, dh *DynamodbHandle, q *que
 	return e, err
 }
 
-// GetTableKeys returns table keys in pk,sk order
-
-// func GetKeys(ctx context.Context, table string) { // need dh
-func GetTableKeys(ctx context.Context, table string, dh *DynamodbHandle) (*tabEntry, error) {
-
-	var err error
-
-	t := tabCache
-
-	t.Lock()
-
-	e, _ := t.cache[table]
-
-	if e == nil {
-		e = &tabEntry{ch: make(chan struct{})}
-		t.cache[table] = e
-		t.Unlock()
-
-		e.dto, err = dbGetTableDesc(ctx, dh, table)
-		if err != nil {
-			return nil, err
-		}
-		close(e.ch)
-	} else {
-		t.Unlock()
-		<-e.ch
-	}
-	if e.dto == nil {
-		return nil, fmt.Errorf("fetchTableDesc error: nil entry")
-	}
-	return e, err
-}
-
 func (t *tabCacheT) fetchTableDesc(ctx context.Context, dh *DynamodbHandle, table string) (*tabEntry, error) {
 	var err error
 
@@ -186,23 +155,49 @@ func (t *tabCacheT) fetchTableDesc(ctx context.Context, dh *DynamodbHandle, tabl
 	e, _ := t.cache[table]
 
 	if e == nil {
-		e = &tabEntry{ch: make(chan struct{})}
+		e = &tabEntry{ch: make(chan struct{}), m: key.NewTabMeta()}
 		t.cache[table] = e
 		t.Unlock()
 
-		e.dto, err = dbGetTableDesc(ctx, dh, table)
+		dto, err := dbGetTableDesc(ctx, dh, table)
 		if err != nil {
 			return nil, err
 		}
+		e.dto = dto
+		e.m.SetKeys(tableKeys(e, dto))
 		close(e.ch)
 	} else {
 		t.Unlock()
 		<-e.ch
 	}
-	if e.dto == nil {
+	if e.m == nil {
 		return nil, fmt.Errorf("fetchTableDesc error: nil entry")
 	}
 	return e, err
+}
+
+func tableKeys(te *tabEntry, dto *dynamodb.DescribeTableOutput) []key.TableKey {
+
+	var idx int // dynamodb allows upto two keys
+
+	tabKey := make([]key.TableKey, len(dto.Table.KeySchema), len(dto.Table.KeySchema))
+	for _, v := range dto.Table.KeySchema {
+		if v.KeyType == types.KeyTypeHash {
+			idx = 0
+			tabKey[0].Name = *v.AttributeName
+		} else {
+			idx = 1
+			tabKey[1].Name = *v.AttributeName
+		}
+
+		// get the key data type
+		for _, vv := range dto.Table.AttributeDefinitions {
+			if *vv.AttributeName == *v.AttributeName {
+				tabKey[idx].DBtype = string(vv.AttributeType) // "S","N","B"
+			}
+		}
+	}
+	return tabKey
 }
 
 func (pe *qryEntry) assignAccessMethod(q *query.QueryHandle, e *tabEntry) error {

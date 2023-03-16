@@ -44,7 +44,7 @@ const (
 	throttle_ // reduce concurrency
 )
 
-type ComparOpr string
+type ComparOpr = string
 
 const (
 	EQ         ComparOpr = "EQ"
@@ -59,29 +59,29 @@ const (
 	NA         ComparOpr = "NA"
 )
 
-func (c ComparOpr) String() string {
-	switch c {
-	case EQ:
-		return " = "
-	case NE:
-		return " != "
-	case GT:
-		return " > "
-	case GE:
-		return " >= "
-	case LE:
-		return " <= "
-	case LT:
-		return " < "
-	case BEGINSWITH:
-		return "BeginsWith("
-	case BETWEEN:
-		return "Between("
-	case NOT:
-		return " !"
-	}
-	return "NA"
-}
+// func (c ComparOpr) String() string {
+// 	switch c {
+// 	case EQ:
+// 		return " = "
+// 	case NE:
+// 		return " != "
+// 	case GT:
+// 		return " > "
+// 	case GE:
+// 		return " >= "
+// 	case LE:
+// 		return " <= "
+// 	case LT:
+// 		return " < "
+// 	case BEGINSWITH:
+// 		return "BeginsWith("
+// 	case BETWEEN:
+// 		return "Between("
+// 	case NOT:
+// 		return " !"
+// 	}
+// 	return "NA"
+// }
 
 func execute(ctx context.Context, client *dynamodb.Client, bs []*mut.Mutations, tag string, api db.API, cfg aws.Config, opt ...db.Option) error {
 
@@ -256,44 +256,139 @@ func convertBS2List(values map[string]types.AttributeValue, names map[string]str
 
 func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
-	var (
-		err error
-		//c    string
-		expr expression.Expression
-		upd  expression.UpdateBuilder
-	)
-
 	// merge := false
 	// if len(ismerge) > 0 {
 	// 	merge = ismerge[0]
 	// }
 
+	var (
+		flt, f expression.ConditionBuilder
+		upd    expression.UpdateBuilder
+	)
+
+	keyAttrs := m.GetKeys()
+
+	// generate key AV
+	for _, v := range keyAttrs {
+		if v.GetOprStr() != "EQ" {
+			return nil, newDBExprErr("txUpdate", "", "", fmt.Errorf(`For UpdateItem(), equality operator for all keys must be "EQ"`))
+		}
+	}
+
+	if len(m.GetTableKeys()) != len(keyAttrs) {
+		switch len(m.GetTableKeys()) {
+		case 1:
+			return nil, newDBExprErr("txUpdate", "", "", fmt.Errorf(`Missing key specification. Table has 1 key`))
+		case 2:
+			return nil, newDBExprErr("txUpdate", "", "", fmt.Errorf(`Missing key specification. Table has 2 Keys`))
+		}
+	}
+
+	// filter defined
+	for i, n := range m.GetFilterAttrs() {
+
+		log.LogDebug(fmt.Sprintf("exQueryStd Filter : %#v\n", n.Name()))
+
+		if m.GetOr() > 0 && m.GetAnd() > 0 {
+			panic(fmt.Errorf("Cannot mix OrFilter, AndFilter conditions. Use Where() & Values() instead"))
+		}
+		if i == 0 {
+			switch ComparOpr(n.GetOprStr()) {
+			case BETWEEN:
+				arg := m.GetKeyValue(m.GetSK()).([2]interface{})
+				flt = expression.Between(expression.Name(n.Name()), expression.Value(arg[0]), expression.Value(arg[1]))
+			case BEGINSWITH:
+				flt = expression.BeginsWith(expression.Name(n.Name()), n.Value().(string))
+			case GT:
+				flt = expression.GreaterThan(expression.Name(n.Name()), expression.Value(n.Value()))
+			case GE:
+				flt = expression.GreaterThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			case LT:
+				flt = expression.LessThan(expression.Name(n.Name()), expression.Value(n.Value()))
+			case LE:
+				flt = expression.LessThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			case EQ:
+				flt = expression.Equal(expression.Name(n.Name()), expression.Value(n.Value()))
+			case NE:
+				flt = expression.NotEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			default:
+				panic(fmt.Errorf(fmt.Sprintf("Comparitor %q not supported", ComparOpr(n.GetOprStr()))))
+			}
+
+		} else {
+
+			switch ComparOpr(n.GetOprStr()) {
+			case BETWEEN:
+				arg := m.GetKeyValue(m.GetSK()).([2]interface{})
+				f = expression.Between(expression.Name(n.Name()), expression.Value(arg[0]), expression.Value(arg[1]))
+			case BEGINSWITH:
+				f = expression.BeginsWith(expression.Name(n.Name()), n.Value().(string))
+			case GT:
+				f = expression.GreaterThan(expression.Name(n.Name()), expression.Value(n.Value()))
+			case GE:
+				f = expression.GreaterThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			case LT:
+				f = expression.LessThan(expression.Name(n.Name()), expression.Value(n.Value()))
+			case LE:
+				f = expression.LessThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			case EQ:
+				f = expression.Equal(expression.Name(n.Name()), expression.Value(n.Value()))
+			case NE:
+				f = expression.NotEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			default:
+				panic(fmt.Errorf(fmt.Sprintf("xComparitor %q not supported", ComparOpr(n.GetOprStr()))))
+			}
+			//flt = flt.And(f)
+			switch n.BoolCd() {
+			case mut.AND:
+				flt = flt.And(f)
+			case mut.OR:
+				flt = flt.Or(f)
+			}
+		}
+
+	}
+
+	// actual update operation
+
 	for i, col := range m.GetMembers() {
-		if col.Name == "__" || col.IsKey() {
+
+		if col.Name() == "__" || col.IsKey() || col.IsFilter() {
 			continue
 		}
 
-		switch col.Mod {
+		switch col.GetOperation() {
 		// TODO: implement Add (as opposed to inc which is "Add 1")
-		case mut.Add:
+		case mut.ADD:
 			if i == 0 {
-				upd = expression.Set(expression.Name(col.Name), expression.Name(col.Name).Plus(expression.Value(col.Value)))
+				upd = expression.Set(expression.Name(col.Name()), expression.Name(col.Name()).Plus(expression.Value(col.Value())))
 			} else {
-				upd = upd.Set(expression.Name(col.Name), expression.Name(col.Name).Plus(expression.Value(col.Value)))
+				upd = upd.Set(expression.Name(col.Name()), expression.Name(col.Name()).Plus(expression.Value(col.Value())))
 			}
-		case mut.Subtract:
+		case mut.SUBTRACT:
 			if i == 0 {
-				upd = expression.Set(expression.Name(col.Name), expression.Name(col.Name).Minus(expression.Value(col.Value)))
+				upd = expression.Set(expression.Name(col.Name()), expression.Name(col.Name()).Minus(expression.Value(col.Value())))
 			} else {
-				upd = upd.Set(expression.Name(col.Name), expression.Name(col.Name).Minus(expression.Value(col.Value)))
+				upd = upd.Set(expression.Name(col.Name()), expression.Name(col.Name()).Minus(expression.Value(col.Value())))
 			}
-		case mut.Remove:
+		// case mut.MULTIPLY: // MULTIPLY is not supported
+		// 	if i == 0 {
+		// 		upd = expression.Set(expression.Name(col.Name()), expression.Name(col.Name()).Multiply(expression.Value(col.Value())))
+		// 	} else {
+		// 		upd = upd.Set(expression.Name(col.Name()), expression.Name(col.Name()).Multiply(expression.Value(col.Value())))
+		// 	}
+		case mut.REMOVE:
 			if i == 0 {
-				upd = expression.Remove(expression.Name(col.Name))
+				upd = expression.Remove(expression.Name(col.Name()))
 			} else {
-				upd = upd.Remove(expression.Name(col.Name))
+				upd = upd.Remove(expression.Name(col.Name()))
 			}
-
+		case mut.SETNULL:
+			if i == 0 {
+				upd = expression.Set(expression.Name(col.Name()), expression.Value(types.AttributeValueMemberNULL{Value: true}))
+			} else {
+				upd = upd.Set(expression.Name(col.Name()), expression.Value(types.AttributeValueMemberNULL{Value: true}))
+			}
 		}
 
 		switch col.Array {
@@ -303,38 +398,48 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
 		case true:
 
-			// Default operation is APPEND unless overriden by SET.
-			if col.Mod == mut.Set {
+			switch col.GetOperation() {
+			case mut.SET:
 
 				if i == 0 {
 					// on the rare occuassion some mutations want to set the array e.g. XF parameter when creating overflow blocks
-					upd = expression.Set(expression.Name(col.Name), expression.Value(col.Value))
+					upd = expression.Set(expression.Name(col.Name()), expression.Value(col.Value()))
 				} else {
-					upd = upd.Set(expression.Name(col.Name), expression.Value(col.Value))
+					upd = upd.Set(expression.Name(col.Name()), expression.Value(col.Value()))
 				}
 
-			} else {
+			case mut.APPEND:
 
 				// note ListAppend only suitable for List types. Also, being an Update the attribute must exist to use ListAppend
-				//    if it doesn't exist use ListAppend(if_not_exists(col.Name,<emptyArray>)), col.Value)
+				//    if it doesn't exist use ListAppend(if_not_exists(col.Name(),<emptyArray>)), col.Value)
 				if i == 0 {
-					upd = expression.Set(expression.Name(col.Name), expression.ListAppend(expression.Name(col.Name), expression.Value(col.Value)))
-					//	upd = expression.Set(expression.Name(col.Name), expression.ListAppend(expression.Name(col.Name).IfNotExists(expression.Value(5)), expression.Value(col.Value)))
+					upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()), expression.Value(col.Value())))
+					//	upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()).IfNotExists(expression.Value(5)), expression.Value(col.Value())))
 				} else {
-					upd = upd.Set(expression.Name(col.Name), expression.ListAppend(expression.Name(col.Name), expression.Value(col.Value)))
+					upd = upd.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()), expression.Value(col.Value())))
 				}
+
+			case mut.PREPEND:
+
+				if i == 0 {
+					upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Value(col.Value()), expression.Name(col.Name())))
+					//	upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()).IfNotExists(expression.Value(5)), expression.Value(col.Value())))
+				} else {
+					upd = upd.Set(expression.Name(col.Name()), expression.ListAppend(expression.Value(col.Value()), expression.Name(col.Name())))
+				}
+
 			}
 
 		case false:
 
-			if col.Mod != mut.Set {
+			if col.GetOperation() != mut.SET {
 				// already processed (see above)
 				break
 			}
 			var ct string
-			va := col.Value
+			va := col.Value()
 
-			if v, ok := col.Value.(string); ok {
+			if v, ok := col.Value().(string); ok {
 				if v == "$CURRENT_TIMESTAMP$" {
 					tz, _ := time.LoadLocation(param.TZ)
 					ct = time.Now().In(tz).String()
@@ -344,63 +449,96 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
 			// Set operation
 			if i == 0 {
-				upd = expression.Set(expression.Name(col.Name), expression.Value(va))
+				upd = expression.Set(expression.Name(col.Name()), expression.Value(va))
 			} else {
-				upd = upd.Set(expression.Name(col.Name), expression.Value(va))
+				upd = upd.Set(expression.Name(col.Name()), expression.Value(va))
 			}
 		}
 	}
 
-	// add condition expression...
+	// build expression.Expression
+	b := expression.NewBuilder().WithUpdate(upd)
 
-	expr, err = expression.NewBuilder().WithUpdate(upd).Build()
+	if m.FilterSpecified() {
+		b = b.WithCondition(flt)
+	}
+	expr, err := b.Build()
 	if err != nil {
-		return nil, newDBExprErr("txUpdate", "", "", err)
+		return nil, newDBExprErr("txUpdate build expression ", "", "", err)
 	}
 
+	exprCond := expr.Condition()
 	exprNames := expr.Names()
 	exprValues := expr.Values()
+	exprUpdate := expr.Update()
 
-	av := make(map[string]types.AttributeValue)
-	// generate key AV
-	for _, v := range m.GetKeys() {
-		if v.IsPartitionKey() && v.GetOprStr() != "EQ" {
-			return nil, newDBExprErr("txUpdate", "", "", fmt.Errorf(`Equality operator for Dynamodb Partition Key must be "EQ"`))
-		}
-		av[v.Name] = marshalAvUsingValue(v.Value)
+	fmt.Printf("exprNames1; %#v\n", exprNames)
+	fmt.Printf("exprValues1; %#v\n", exprValues)
+	fmt.Printf("exprUpdate1; %#v\n", *exprUpdate)
+	if exprCond != nil {
+		fmt.Printf("exprCond1; %#v\n", *exprCond)
+	}
+
+	if len(*exprUpdate) == 0 {
+		return nil, fmt.Errorf("Mutation does not define any update operations")
+	}
+
+	av, err := marshalAVMapKeys(m)
+	if err != nil {
+		return nil, err
 	}
 	var update *types.Update
 
 	// Where expression defined
 	if len(m.GetWhere()) > 0 {
 
-		exprCond, binds := buildConditionExpr(m.GetWhere(), exprNames, exprValues)
+		var binds int
+
+		exprCond, binds = buildConditionExpr(m.GetWhere(), exprNames, exprValues)
 
 		if binds != len(m.GetValues()) {
 			return nil, fmt.Errorf("expected %d bind variables in Values, got %d", binds, len(m.GetValues()))
 		}
 
+		ii := len(exprValues)
 		for i, v := range m.GetValues() {
-			ii := i + 1
-			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(v)
+			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(m, v)
 		}
+
+		fmt.Printf("exprNames2; %#v\n", exprNames)
+		fmt.Printf("exprValues2; %#v\n", exprValues)
+		fmt.Printf("exprUpdate2; %#v\n", *exprUpdate)
+		fmt.Printf("binds: %d %d\n", binds, len(m.GetValues()))
+		fmt.Printf("exprCond2; %#v\n", *exprCond)
 
 		update = &types.Update{
 			Key:                       av,
 			ExpressionAttributeNames:  exprNames,
 			ExpressionAttributeValues: convertBS2List(exprValues, exprNames),
-			UpdateExpression:          expr.Update(),
-			ConditionExpression:       aws.String(exprCond),
+			UpdateExpression:          exprUpdate,
+			ConditionExpression:       exprCond,
 			TableName:                 aws.String(m.GetTable()),
 		}
 
 	} else {
-		update = &types.Update{
-			Key:                       av,
-			ExpressionAttributeNames:  exprNames,
-			ExpressionAttributeValues: convertBS2List(exprValues, exprNames),
-			UpdateExpression:          expr.Update(),
-			TableName:                 aws.String(m.GetTable()),
+
+		if exprCond != nil {
+			update = &types.Update{
+				Key:                       av,
+				ExpressionAttributeNames:  exprNames,
+				ExpressionAttributeValues: convertBS2List(exprValues, exprNames),
+				UpdateExpression:          exprUpdate,
+				ConditionExpression:       exprCond,
+				TableName:                 aws.String(m.GetTable()),
+			}
+		} else {
+			update = &types.Update{
+				Key:                       av,
+				ExpressionAttributeNames:  exprNames,
+				ExpressionAttributeValues: convertBS2List(exprValues, exprNames),
+				UpdateExpression:          exprUpdate,
+				TableName:                 aws.String(m.GetTable()),
+			}
 		}
 	}
 
@@ -415,26 +553,35 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 		err error
 		put *types.Put
 	)
+
+	keyAttrs := m.GetKeys()
+
 	av := make(map[string]types.AttributeValue)
 	exprNames := make(map[string]string)
 	exprValues := make(map[string]types.AttributeValue)
 
 	if m.GetSubmit() != nil {
-		av, err = attributevalue.MarshalMap(m.GetSubmit())
+
+		// this will create binary sets for binary slices.
+		//av, err = attributevalue.MarshalMap(m.GetSubmit())
+		av, err = marshalAVMap(m) // methoddb's implementation of attributevalue.MarshalMap
+
 	} else {
-		av, err = marshalMutation(m)
+
+		//  MethodDB Attribute() allow will create a dynmodb LIST for all slice types. Developer can override using BINARYSET modifier.
+		if len(m.GetTableKeys()) != len(keyAttrs) {
+			switch len(m.GetTableKeys()) {
+			case 1:
+				return nil, newDBExprErr("txPut", "", "", fmt.Errorf(`Missing key specification. Table has 1 key`))
+			case 2:
+				return nil, newDBExprErr("txPut", "", "", fmt.Errorf(`Missing key specification. Table has 2 Keys`))
+			}
+		}
+		av, err = marshalAVMap(m)
 	}
 	if err != nil {
 		return nil, err
 	}
-	// put = &types.Put{
-	// 	Item:      av,
-	// 	TableName: aws.String(m.GetTable()),
-	// 	//TODO - Process Where() into
-	// 	// ConditionExpression *string
-	// 	// ExpressionAttributeNames map[string]string
-	// 	//ExpressionAttributeValues map[string]AttributeValue
-	// }
 
 	// Where expression defined
 	if len(m.GetWhere()) > 0 {
@@ -447,13 +594,17 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
 		for i, v := range m.GetValues() {
 			ii := i + 1
-			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(v)
+			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(m, v)
 		}
+
+		fmt.Println("exprValues: ", len(exprValues))
+		fmt.Println("exprKeyCond: ", *exprCond)
+		fmt.Println("exprNames: ", exprNames)
 
 		if len(exprNames) == 0 {
 			put = &types.Put{
 				Item:                av,
-				ConditionExpression: aws.String(exprCond),
+				ConditionExpression: exprCond,
 				TableName:           aws.String(m.GetTable()),
 			}
 		} else {
@@ -463,7 +614,7 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 				put = &types.Put{
 					Item:                     av,
 					ExpressionAttributeNames: exprNames,
-					ConditionExpression:      aws.String(exprCond),
+					ConditionExpression:      exprCond,
 					TableName:                aws.String(m.GetTable()),
 				}
 			} else {
@@ -471,7 +622,7 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 					Item:                      av,
 					ExpressionAttributeNames:  exprNames,
 					ExpressionAttributeValues: exprValues,
-					ConditionExpression:       aws.String(exprCond),
+					ConditionExpression:       exprCond,
 					TableName:                 aws.String(m.GetTable()),
 				}
 			}
@@ -491,23 +642,133 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
 func txDelete(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
-	var delete *types.Delete
+	var (
+		delete     *types.Delete
+		err        error
+		flt, f     expression.ConditionBuilder
+		expr       expression.Expression
+		exprCond   *string
+		exprNames  map[string]string
+		exprValues map[string]types.AttributeValue
+	)
 
-	av := make(map[string]types.AttributeValue)
-	exprNames := make(map[string]string)
-	exprValues := make(map[string]types.AttributeValue)
+	keyAttrs := m.GetKeys()
 
 	// generate key AV
-	for _, v := range m.GetKeys() {
-		if v.IsPartitionKey() && v.GetOprStr() != "EQ" {
-			return nil, newDBExprErr("txUpdate", "", "", fmt.Errorf(`Equality operator for Dynamodb Partition Key must be "EQ"`))
+	for _, v := range keyAttrs {
+		if v.GetOprStr() != "EQ" {
+			return nil, newDBExprErr("txDelete", "", "", fmt.Errorf(`For DeleteItem(), equality operator for all keys must be "EQ"`))
 		}
-		av[v.Name] = marshalAvUsingValue(v.Value)
 	}
-	// Where expression defined
-	if len(m.GetWhere()) > 0 {
 
-		exprCond, binds := buildConditionExpr(m.GetWhere(), exprNames, exprValues)
+	if len(m.GetTableKeys()) != len(keyAttrs) {
+		switch len(m.GetTableKeys()) {
+		case 1:
+			return nil, newDBExprErr("txDelete", "", "", fmt.Errorf(`Missing key specification. Table has 1 key`))
+		case 2:
+			return nil, newDBExprErr("txDelete", "", "", fmt.Errorf(`Missing key specification. Table has 2 Keys`))
+		}
+	}
+
+	// filter defined
+	for i, n := range m.GetFilterAttrs() {
+
+		log.LogDebug(fmt.Sprintf("exQueryStd Filter : %#v\n", n.Name()))
+
+		if m.GetOr() > 0 && m.GetAnd() > 0 {
+			panic(fmt.Errorf("Cannot mix OrFilter, AndFilter conditions. Use Where() & Values() instead"))
+		}
+		if i == 0 {
+			switch ComparOpr(n.GetOprStr()) {
+			case BETWEEN:
+				arg := m.GetKeyValue(m.GetSK()).([2]interface{})
+				flt = expression.Between(expression.Name(n.Name()), expression.Value(arg[0]), expression.Value(arg[1]))
+			case BEGINSWITH:
+				flt = expression.BeginsWith(expression.Name(n.Name()), n.Value().(string))
+			case GT:
+				flt = expression.GreaterThan(expression.Name(n.Name()), expression.Value(n.Value()))
+			case GE:
+				flt = expression.GreaterThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			case LT:
+				flt = expression.LessThan(expression.Name(n.Name()), expression.Value(n.Value()))
+			case LE:
+				flt = expression.LessThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			case EQ:
+				flt = expression.Equal(expression.Name(n.Name()), expression.Value(n.Value()))
+			case NE:
+				flt = expression.NotEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			default:
+				panic(fmt.Errorf(fmt.Sprintf("Comparitor %q not supported", ComparOpr(n.GetOprStr()))))
+			}
+
+		} else {
+
+			switch ComparOpr(n.GetOprStr()) {
+			case BETWEEN:
+				arg := m.GetKeyValue(m.GetSK()).([2]interface{})
+				f = expression.Between(expression.Name(n.Name()), expression.Value(arg[0]), expression.Value(arg[1]))
+			case BEGINSWITH:
+				f = expression.BeginsWith(expression.Name(n.Name()), n.Value().(string))
+			case GT:
+				f = expression.GreaterThan(expression.Name(n.Name()), expression.Value(n.Value()))
+			case GE:
+				f = expression.GreaterThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			case LT:
+				f = expression.LessThan(expression.Name(n.Name()), expression.Value(n.Value()))
+			case LE:
+				f = expression.LessThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			case EQ:
+				f = expression.Equal(expression.Name(n.Name()), expression.Value(n.Value()))
+			case NE:
+				f = expression.NotEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+			default:
+				panic(fmt.Errorf(fmt.Sprintf("xComparitor %q not supported", ComparOpr(n.GetOprStr()))))
+			}
+			//flt = flt.And(f)
+			switch n.BoolCd() {
+			case mut.AND:
+				flt = flt.And(f)
+			case mut.OR:
+				flt = flt.Or(f)
+			}
+		}
+
+	}
+
+	av, err := marshalAVMapKeys(m)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(m.GetFilterAttrs()) > 0 {
+
+		expr, err = expression.NewBuilder().WithCondition(flt).Build()
+		if err != nil {
+			return nil, newDBExprErr("txDelete build expression ", "", "", err)
+		}
+
+		exprCond = expr.Condition()
+		exprNames = expr.Names()
+		exprValues = expr.Values()
+
+		fmt.Println("===== GETFILTERATTRS=====")
+		fmt.Println("exprNames: ", exprNames)
+		if exprCond != nil {
+			fmt.Println("exprCond: ", *exprCond)
+		}
+		fmt.Println("exprValues: ", exprValues)
+
+	} else if len(m.GetWhere()) > 0 {
+
+		if exprNames == nil {
+			exprNames = make(map[string]string)
+		}
+		if exprValues == nil {
+			exprValues = make(map[string]types.AttributeValue)
+		}
+		var binds int
+
+		exprCond, binds = buildConditionExpr(m.GetWhere(), exprNames, exprValues)
 
 		if binds != len(m.GetValues()) {
 			return nil, fmt.Errorf("expected %d bind variables in Values, got %d", binds, len(m.GetValues()))
@@ -515,33 +776,7 @@ func txDelete(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
 		for i, v := range m.GetValues() {
 			ii := i + 1
-			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(v)
-		}
-
-		if len(exprNames) == 0 {
-			delete = &types.Delete{
-				Key:                 av,
-				ConditionExpression: aws.String(exprCond),
-				TableName:           aws.String(m.GetTable()),
-			}
-		} else {
-
-			if len(exprValues) == 0 {
-				delete = &types.Delete{
-					Key:                      av,
-					ExpressionAttributeNames: exprNames,
-					ConditionExpression:      aws.String(exprCond),
-					TableName:                aws.String(m.GetTable()),
-				}
-			} else {
-				delete = &types.Delete{
-					Key:                       av,
-					ExpressionAttributeNames:  exprNames,
-					ExpressionAttributeValues: exprValues,
-					ConditionExpression:       aws.String(exprCond),
-					TableName:                 aws.String(m.GetTable()),
-				}
-			}
+			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(m, v)
 		}
 
 	} else {
@@ -552,10 +787,388 @@ func txDelete(m *mut.Mutation) (*types.TransactWriteItem, error) {
 		}
 	}
 
+	if exprCond == nil {
+
+		delete = &types.Delete{
+			Key:       av,
+			TableName: aws.String(m.GetTable()),
+		}
+
+	} else if len(exprValues) == 0 {
+
+		if len(exprNames) == 0 {
+
+			if len(*exprCond) == 0 {
+				delete = &types.Delete{
+					Key:       av,
+					TableName: aws.String(m.GetTable()),
+				}
+
+			} else {
+				delete = &types.Delete{
+					Key:                 av,
+					ConditionExpression: exprCond,
+					TableName:           aws.String(m.GetTable()),
+				}
+			}
+		} else {
+
+			delete = &types.Delete{
+				Key:                      av,
+				ExpressionAttributeNames: exprNames,
+				ConditionExpression:      exprCond,
+				TableName:                aws.String(m.GetTable()),
+			}
+		}
+
+	} else {
+
+		delete = &types.Delete{
+			Key:                       av,
+			ExpressionAttributeNames:  exprNames,
+			ExpressionAttributeValues: exprValues,
+			ConditionExpression:       exprCond,
+			TableName:                 aws.String(m.GetTable()),
+		}
+	}
+
+	// } else if len(m.GetWhere()) > 0 {
+
+	// 	fmt.Println("===== WHERE=====")
+
+	// 	if exprNames == nil {
+	// 		exprNames = make(map[string]string)
+	// 	}
+	// 	if exprValues == nil {
+	// 		exprValues = make(map[string]types.AttributeValue)
+	// 	}
+
+	// 	exprCond, binds := buildConditionExpr(m.GetWhere(), exprNames, exprValues)
+
+	// 	if binds != len(m.GetValues()) {
+	// 		return nil, fmt.Errorf("expected %d bind variables in Values, got %d", binds, len(m.GetValues()))
+	// 	}
+
+	// 	for i, v := range m.GetValues() {
+	// 		ii := i + 1
+	// 		exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(v)
+	// 	}
+
+	// 	fmt.Println("exprNames: ", exprNames)
+	// 	if len(exprCond) > 0 {
+	// 		fmt.Println("exprCond: ", exprCond)
+	// 	}
+	// 	fmt.Println("exprValues: ", exprValues)
+
+	// 	if len(exprNames) == 0 {
+
+	// 		if len(exprCond) > 0 {
+
+	// 			if len(exprValues) == 0 {
+
+	// 				delete = &types.Delete{
+	// 					Key:                 av,
+	// 					ConditionExpression: aws.String(exprCond),
+	// 					TableName:           aws.String(m.GetTable()),
+	// 				}
+
+	// 			} else {
+	// 				delete = &types.Delete{
+	// 					Key:                       av,
+	// 					ExpressionAttributeValues: exprValues,
+	// 					ConditionExpression:       aws.String(exprCond),
+	// 					TableName:                 aws.String(m.GetTable()),
+	// 				}
+	// 			}
+	// 		} else {
+
+	// 			if len(exprValues) == 0 {
+
+	// 				delete = &types.Delete{
+	// 					Key:       av,
+	// 					TableName: aws.String(m.GetTable()),
+	// 				}
+
+	// 			} else {
+
+	// 				delete = &types.Delete{
+	// 					Key:                       av,
+	// 					ExpressionAttributeValues: exprValues,
+	// 					TableName:                 aws.String(m.GetTable()),
+	// 				}
+
+	// 			}
+
+	// 		}
+
+	// 	} else {
+
+	// 		if len(exprValues) == 0 {
+
+	// 			if len(exprCond) == 0 {
+
+	// 				delete = &types.Delete{
+	// 					Key:                      av,
+	// 					ExpressionAttributeNames: exprNames,
+	// 					TableName:                aws.String(m.GetTable()),
+	// 				}
+	// 			} else {
+
+	// 				delete = &types.Delete{
+	// 					Key:                      av,
+	// 					ConditionExpression:      aws.String(exprCond),
+	// 					ExpressionAttributeNames: exprNames,
+	// 					TableName:                aws.String(m.GetTable()),
+	// 				}
+
+	// 			}
+
+	// 		} else {
+
+	// 			if len(exprCond) == 0 {
+
+	// 				delete = &types.Delete{
+	// 					Key:                       av,
+	// 					ExpressionAttributeNames:  exprNames,
+	// 					ExpressionAttributeValues: exprValues,
+	// 					TableName:                 aws.String(m.GetTable()),
+	// 				}
+
+	// 			} else {
+
+	// 				delete = &types.Delete{
+	// 					Key:                       av,
+	// 					ConditionExpression:       aws.String(exprCond),
+	// 					ExpressionAttributeValues: exprValues,
+	// 					TableName:                 aws.String(m.GetTable()),
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+
 	twi := &types.TransactWriteItem{Delete: delete}
 	return twi, nil
 
 }
+
+// func txDelete(m *mut.Mutation) (*types.TransactWriteItem, error) {
+
+// 	var (
+// 		keyc   expression.KeyConditionBuilder
+// 		flt, f expression.ConditionBuilder
+// 		delete *types.Delete
+
+// 		err error
+
+// 		exprNames  map[string]string
+// 		exprValues map[string]types.AttributeValue
+// 		exprFilter *string
+// 	)
+
+// 	keyAttrs := m.GetKeys()
+
+// 	switch len(m.GetKeys()) {
+// 	case 1:
+// 		if keyAttrs[0].Name() != m.GetPK() {
+// 			panic(fmt.Errorf(fmt.Sprintf("Expected Partition Key %q got %q", m.GetPK(), keyAttrs[0].Name)))
+// 		}
+// 		// always EQ
+// 		keyc = expression.KeyEqual(expression.Key(m.GetPK()), expression.Value(m.GetKeyValue(m.GetPK())))
+// 	case 2:
+// 		// TODO: this check of keyAttrs is redundant??
+// 		for _, v := range keyAttrs {
+// 			if v.Name() != m.GetPK() {
+// 				if v.Name() != m.GetSK() {
+// 					return nil, fmt.Errorf(fmt.Sprintf("Expected key attribute to be one of (%q %q) got %q", m.GetPK(), m.GetSK(), v))
+// 				}
+// 			}
+// 		}
+// 		//
+// 		keyc = expression.KeyEqual(expression.Key(m.GetPK()), expression.Value(m.GetKeyValue(m.GetPK())))
+// 		switch ComparOpr(m.GetKeyComparOpr(m.GetSK())) {
+// 		case EQ:
+// 			keyc = expression.KeyAnd(keyc, expression.KeyEqual(expression.Key(m.GetSK()), expression.Value(m.GetKeyValue(m.GetSK()))))
+// 		case GT:
+// 			keyc = expression.KeyAnd(keyc, expression.KeyGreaterThan(expression.Key(m.GetSK()), expression.Value(m.GetKeyValue(m.GetSK()))))
+// 		case GE:
+// 			keyc = expression.KeyAnd(keyc, expression.KeyGreaterThanEqual(expression.Key(m.GetSK()), expression.Value(m.GetKeyValue(m.GetSK()))))
+// 		case LT:
+// 			keyc = expression.KeyAnd(keyc, expression.KeyLessThan(expression.Key(m.GetSK()), expression.Value(m.GetKeyValue(m.GetSK()))))
+// 		case LE:
+// 			keyc = expression.KeyAnd(keyc, expression.KeyLessThanEqual(expression.Key(m.GetSK()), expression.Value(m.GetKeyValue(m.GetSK()))))
+// 		case BEGINSWITH:
+// 			keyc = expression.KeyAnd(keyc, expression.KeyBeginsWith(expression.Key(m.GetSK()), m.GetKeyValue(m.GetSK()).(string)))
+// 		case BETWEEN:
+// 			arg := m.GetKeyValue(m.GetSK()).([2]interface{})
+// 			keyc = expression.KeyAnd(keyc, expression.KeyBetween(expression.Key(m.GetSK()), expression.Value(arg[0]), expression.Value(arg[1])))
+// 		default:
+// 			panic(fmt.Errorf(fmt.Sprintf("Key operator %q not supported", keyAttrs[1].Name)))
+
+// 		}
+// 	default:
+// 		panic(fmt.Errorf(fmt.Sprintf("No more than two Key %q", len(m.GetKeys()))))
+// 	}
+
+// 	// filter defined
+// 	for i, n := range m.GetFilterAttrs() {
+
+// 		log.LogDebug(fmt.Sprintf("exQueryStd Filter : %#v\n", n.Name()))
+
+// 		if m.GetOr() > 0 && m.GetAnd() > 0 {
+// 			panic(fmt.Errorf("Cannot mix OrFilter, AndFilter conditions. Use Where() & Values() instead"))
+// 		}
+// 		if i == 0 {
+// 			switch ComparOpr(n.GetOprStr()) {
+// 			case BETWEEN:
+// 				arg := m.GetKeyValue(m.GetSK()).([2]interface{})
+// 				flt = expression.Between(expression.Name(n.Name()), expression.Value(arg[0]), expression.Value(arg[1]))
+// 			case BEGINSWITH:
+// 				flt = expression.BeginsWith(expression.Name(n.Name()), n.Value().(string))
+// 			case GT:
+// 				flt = expression.GreaterThan(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			case GE:
+// 				flt = expression.GreaterThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			case LT:
+// 				flt = expression.LessThan(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			case LE:
+// 				flt = expression.LessThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			case EQ:
+// 				flt = expression.Equal(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			case NE:
+// 				flt = expression.NotEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			default:
+// 				panic(fmt.Errorf(fmt.Sprintf("Comparitor %q not supported", ComparOpr(n.GetOprStr()))))
+// 			}
+
+// 		} else {
+
+// 			switch ComparOpr(n.GetOprStr()) {
+// 			case BETWEEN:
+// 				arg := m.GetKeyValue(m.GetSK()).([2]interface{})
+// 				f = expression.Between(expression.Name(n.Name()), expression.Value(arg[0]), expression.Value(arg[1]))
+// 			case BEGINSWITH:
+// 				f = expression.BeginsWith(expression.Name(n.Name()), n.Value().(string))
+// 			case GT:
+// 				f = expression.GreaterThan(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			case GE:
+// 				f = expression.GreaterThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			case LT:
+// 				f = expression.LessThan(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			case LE:
+// 				f = expression.LessThanEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			case EQ:
+// 				f = expression.Equal(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			case NE:
+// 				f = expression.NotEqual(expression.Name(n.Name()), expression.Value(n.Value()))
+// 			default:
+// 				panic(fmt.Errorf(fmt.Sprintf("xComparitor %q not supported", ComparOpr(n.GetOprStr()))))
+// 			}
+// 			//flt = flt.And(f)
+// 			switch n.BoolCd() {
+// 			case mut.AND:
+// 				flt = flt.And(f)
+// 			case mut.OR:
+// 				flt = flt.Or(f)
+// 			}
+// 		}
+
+// 	}
+// 	// build expression.Expression
+// 	b := expression.NewBuilder().WithKeyCondition(keyc)
+
+// 	if m.FilterSpecified() {
+// 		b = b.WithFilter(flt)
+// 	}
+// 	expr, err := b.Build()
+// 	if err != nil {
+// 		return nil, newDBExprErr("exQueryStd", "", "", err)
+// 	}
+
+// 	exprKeyCond := expr.KeyCondition()
+// 	exprNames = expr.Names()
+// 	exprValues = expr.Values()
+// 	exprFilter = expr.Filter()
+
+// 	av := make(map[string]types.AttributeValue)
+
+// 	for _, col := range m.GetMembers() {
+
+// 		fmt.Println("txDelete. ", col.Name(), col.GetOprStr(), len(*col.GetModifier()))
+
+// 	}
+
+// 	// generate key AV
+// 	if len(*exprKeyCond) == 0 {
+// 		for _, v := range m.GetKeys() {
+// 			if v.IsPartitionKey() && v.GetOprStr() != "EQ" {
+// 				return nil, newDBExprErr("txUpdate", "", "", fmt.Errorf(`Equality operator for Dynamodb Partition Key must be "EQ"`))
+// 			}
+// 			av[v.Name()] = marshalAvUsingValue(v.Value())
+// 		}
+// 	}
+// 	// Where expression defined
+// 	if len(m.GetWhere()) > 0 {
+
+// 		exprCond, binds := buildConditionExpr(m.GetWhere(), exprNames, exprValues)
+
+// 		if binds != len(m.GetValues()) {
+// 			return nil, fmt.Errorf("expected %d bind variables in Values, got %d", binds, len(m.GetValues()))
+// 		}
+
+// 		for i, v := range m.GetValues() {
+// 			ii := i + 1
+// 			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(v)
+// 		}
+
+// 		if len(exprNames) == 0 {
+// 			delete = &types.Delete
+// 				Key:                 av,
+// 				ConditionExpression: aws.String(exprCond),
+// 				TableName:           aws.String(m.GetTable()),
+// 			}
+// 		} else {
+
+// 			if len(exprValues) == 0 {
+// 				delete = &types.Delete{
+// 					Key:                      av,
+// 					ExpressionAttributeNames: exprNames,
+// 					ConditionExpression:      aws.String(exprCond),
+// 					TableName:                aws.String(m.GetTable()),
+// 				}
+// 			} else {
+// 				delete = &types.Delete{
+// 					Key:                       av,
+// 					ExpressionAttributeNames:  exprNames,
+// 					ExpressionAttributeValues: exprValues,
+// 					ConditionExpression:       aws.String(exprCond),
+// 					TableName:                 aws.String(m.GetTable()),
+// 				}
+// 			}
+// 		}
+
+// 	} else {
+
+// 		if len(*exprFilter) == 0 {
+// 			delete = &types.Delete{
+// 				Key:       av,
+// 				TableName: aws.String(m.GetTable()),
+// 			}
+// 		} else {
+// 			delete = &types.Delete{
+// 				Key:                       av,
+// 				ExpressionAttributeNames:  exprNames,
+// 				ExpressionAttributeValues: exprValues,
+// 				ConditionExpression:       exprFilter,
+// 				TableName:                 aws.String(m.GetTable()),
+// 			}
+
+// 		}
+// 	}
+
+// 	twi := &types.TransactWriteItem{Delete: delete}
+// 	return twi, nil
+
+//}
 
 func crTx(m *mut.Mutation, opr mut.StdMut) ([]types.TransactWriteItem, error) {
 
@@ -654,7 +1267,7 @@ func execBatchMutations(ctx context.Context, client *dynamodb.Client, bi mut.Mut
 	for _, m := range bi {
 
 		m := m.(*mut.Mutation)
-		av, err := marshalMutation(m)
+		av, err := marshalAVMap(m)
 		if err != nil {
 			return newDBSysErr("genBatchInsert", "", err)
 		}
@@ -846,6 +1459,7 @@ func execOptim(ctx context.Context, client *dynamodb.Client, bs []*mut.Mutations
 // mut.Mutations = []dbs.Mutation
 type txWrite struct {
 	// upto to out transactionWriteItems created when a merge is specified
+	ms    []*mut.Mutation
 	txwii [2]*dynamodb.TransactWriteItemsInput
 	merge bool
 }
@@ -887,6 +1501,8 @@ func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mut
 		merge2 = 1
 	)
 	var merge bool
+	var ms []*mut.Mutation
+
 	// generate statements for each mutation
 	for _, b := range bs {
 
@@ -899,6 +1515,20 @@ func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mut
 				if api == db.OptimAPI && y.GetOpr() == mut.Insert {
 					continue
 				}
+
+				if y.GetSubmit() != nil {
+					attrs, err := y.MarshalAttributes(y.GetSubmit(), "dynamodbav") // populates mutation.ms
+					if err != nil {
+						return err
+					}
+					y.SetMembers(attrs)
+
+					// err := marshalAttributes(y)
+					// if err != nil {
+					// 	return err
+					// }
+				}
+
 				txwis, err := crTx(y, y.GetOpr())
 				if err != nil {
 					return err
@@ -916,6 +1546,8 @@ func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mut
 					merge = true
 				}
 
+				ms = append(ms, y)
+
 			} else {
 
 				// TODO: GetStatement() feature. Implement - if wanted
@@ -924,11 +1556,13 @@ func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mut
 
 		tx = txWrite{txwii: [2]*dynamodb.TransactWriteItemsInput{&dynamodb.TransactWriteItemsInput{TransactItems: twi, ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes}, &dynamodb.TransactWriteItemsInput{TransactItems: twi2, ReturnConsumedCapacity: types.ReturnConsumedCapacityIndexes}}}
 		tx.merge = merge
+		tx.ms = ms
 		// add transaction to the batch transactions
 		btx = append(btx, tx)
 		//	// reset for next batch of mutations
 		twi2 = nil
 		twi = nil
+		ms = nil
 
 	}
 
@@ -1037,6 +1671,10 @@ func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mut
 							ReturnConsumedCapacity:    types.ReturnConsumedCapacityIndexes,
 						}
 
+						if m := tx.ms[j]; m != nil && m.RtnRequested() {
+							uii.ReturnValues = types.ReturnValue(m.GetRtnMode())
+						}
+
 						t0 := time.Now()
 						uio, err := client.UpdateItem(ctx, uii)
 						t1 := time.Now()
@@ -1075,6 +1713,9 @@ func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mut
 						} else {
 
 							stats.SaveStdStat(stats.UpdateItem, tag, uio.ConsumedCapacity, t1.Sub(t0))
+							if m := tx.ms[j]; m != nil && m.RtnRequested() {
+								attributevalue.UnmarshalMap(uio.Attributes, m.GetRtnValue())
+							}
 						}
 					}
 
@@ -1121,6 +1762,9 @@ func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mut
 							ReturnConsumedCapacity:    types.ReturnConsumedCapacityIndexes,
 						}
 
+						if m := tx.ms[j]; m != nil && m.RtnRequested() {
+							dii.ReturnValues = types.ReturnValue(m.GetRtnMode())
+						}
 						t0 := time.Now()
 						uio, err := client.DeleteItem(ctx, dii)
 						t1 := time.Now()
@@ -1139,6 +1783,11 @@ func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mut
 						} else {
 
 							stats.SaveStdStat(stats.DeleteItem, tag, uio.ConsumedCapacity, t1.Sub(t0))
+
+							if m := tx.ms[j]; m != nil && m.RtnRequested() {
+								attributevalue.UnmarshalMap(uio.Attributes, m.GetRtnValue())
+							}
+
 						}
 					}
 				} // for
@@ -1174,7 +1823,7 @@ func genKeyAV(q *query.QueryHandle) (map[string]types.AttributeValue, error) {
 	// generate key AV
 	for _, v := range q.GetAttr() {
 		if v.IsKey() {
-			av[v.Name()] = marshalAvUsingValue(v.Value())
+			av[v.Name()] = marshalAvUsingValue(nil, v.Value())
 			if err != nil {
 				return nil, err
 			}
@@ -1589,6 +2238,12 @@ func exQueryStd(ctx context.Context, client *DynamodbHandle, q *query.QueryHandl
 	exprValues = expr.Values()
 	exprFilter = expr.Filter()
 
+	fmt.Printf("exprValues: %d", len(exprValues))
+	// fmt.Println("exprValues: ", exprValues[":1"].(*types.AttributeValueMemberN).Value)
+	// fmt.Println("exprValues: ", exprValues[":0"].(*types.AttributeValueMemberS).Value)
+	//	fmt.Println("exprFilter: ", *exprFilter)
+	fmt.Println("exprKeyCond: ", *exprKeyCond)
+
 	// Where expression defined
 	if len(q.GetWhere()) > 0 {
 
@@ -1601,20 +2256,38 @@ func exQueryStd(ctx context.Context, client *DynamodbHandle, q *query.QueryHandl
 			panic(fmt.Errorf("expected %d bind variables in Values, got %d", binds, len(q.GetValues())))
 		}
 
+		ii := 1 // values in keys
 		for i, v := range q.GetValues() {
-			exprValues[":"+strconv.Itoa(i)] = marshalAvUsingValue(v)
+			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(nil, v)
 		}
 
+		if exprStr != nil {
+			fmt.Println("exprStr: ", *exprStr)
+		} else {
+			fmt.Println("exprStr is nil ")
+		}
+		fmt.Println("exprNames: ", exprNames)
+		for k, v := range exprValues {
+
+			switch vv := v.(type) {
+			case *types.AttributeValueMemberN:
+				fmt.Println("exprValues: ", k, vv.Value)
+			case *types.AttributeValueMemberS:
+				fmt.Println("exprValues: ", k, vv.Value)
+			}
+		}
+		// fmt.Println("exprValues: 0 ", exprValues[":0"].(*types.AttributeValueMemberN).Value)
+		// fmt.Println("exprValues: 1 ", exprValues[":va"].(*types.AttributeValueMemberS).Value)
 		// build expression.Expression
-		b := expression.NewBuilder().WithKeyCondition(keyc)
-		if proj != nil {
-			b = b.WithProjection(*proj)
-		}
+		// b := expression.NewBuilder().WithKeyCondition(keyc)
+		// if proj != nil {
+		// 	b = b.WithProjection(*proj)
+		// }
 
-		expr, err := b.Build()
-		if err != nil {
-			return newDBExprErr("exQueryStd", "", "", err)
-		}
+		// expr, err := b.Build()
+		// if err != nil {
+		// 	return newDBExprErr("exQueryStd", "", "", err)
+		// }
 		// append expression Names and Values
 		for k, v := range expr.Names() {
 			exprNames[k] = v
@@ -1623,10 +2296,16 @@ func exQueryStd(ctx context.Context, client *DynamodbHandle, q *query.QueryHandl
 			exprValues[k] = v
 		}
 		var s strings.Builder
-		s.WriteString(*exprFilter)
-		s.WriteString(" AND (")
-		s.WriteString(exprStr)
-		s.WriteString(" )")
+		if exprFilter != nil {
+			s.WriteString(*exprFilter)
+			s.WriteString(" AND ")
+		}
+		//	s.WriteString("(")
+		if exprStr != nil {
+			s.WriteString(*exprStr)
+		}
+		//s.WriteString(" )")
+		fmt.Println("Query: ", s.String())
 		exprFilter = aws.String(s.String())
 		// define QueryInput
 

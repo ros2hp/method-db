@@ -18,10 +18,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	// "github.com/aws/aws-sdk-go/aws"
-	// "github.com/aws/aws-sdk-go/aws/session"
-	// "github.com/aws/aws-sdk-go/service/dynamodb"
 )
 
 type DynamodbHandle struct {
@@ -146,34 +142,16 @@ func (h *DynamodbHandle) RetryOp(e error) bool {
 	return retryOp(e, "notag")
 }
 
-func (h *DynamodbHandle) GetTableKeys(ctx context.Context, table string) ([]key.TableKey, error) {
+// GetTableKeys asks database for keys associated with table (presume index aswell in case of Dynamodb)
+func (h *DynamodbHandle) GetTableMeta(ctx context.Context, table string) (*key.TabMeta, error) {
 
-	var idx int // dynamodb allows upto two keys
-
-	te, err := tabCache.fetchTableDesc(ctx, h, table)
+	// get from cache, which inturn will source from db on first execution
+	e, err := tabCache.fetchTableDesc(ctx, h, table)
 	if err != nil {
 		return nil, fmt.Errorf("GetTableKeys() error: %w", err)
 	}
-	tabKey := make([]key.TableKey, len(te.dto.Table.KeySchema), len(te.dto.Table.KeySchema))
-	for _, v := range te.dto.Table.KeySchema {
-		if v.KeyType == types.KeyTypeHash {
-			idx = 0
-			tabKey[0].Name = *v.AttributeName
-		} else {
-			idx = 1
-			tabKey[1].Name = *v.AttributeName
-		}
 
-		// get the key data type
-		for _, vv := range te.dto.Table.AttributeDefinitions {
-			if *vv.AttributeName == *v.AttributeName {
-				tabKey[idx].DBtype = string(vv.AttributeType) // "S","N","B"
-			}
-		}
-	}
-
-	return tabKey, nil
-
+	return e.m, nil
 }
 
 // var (

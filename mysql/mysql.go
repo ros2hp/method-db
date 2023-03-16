@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/ros2hp/method-db/db"
 	mdbsql "github.com/ros2hp/method-db/internal/sql"
@@ -171,30 +173,143 @@ func (h MySQL) CloseTx(bs []*mut.Mutations) {
 
 func (h MySQL) String() string {
 
-	return "mysql [not default]"
+	return "mysql [non-default]"
 
 }
 
-func (h MySQL) GetTableKeys(ctx context.Context, table string) ([]key.TableKey, error) {
-	return nil, nil
+type tabEntry struct {
+	m  *key.TabMeta
+	ch chan struct{}
 }
 
-// 	var pk, sk string
+type tableName = string
 
-// 	dto, err := tabCache.fetchTableDesc(ctx, h.Client, table)
+type tabCacheT struct {
+	sync.Mutex
+	cache map[tableName]*tabEntry
+	//
+	entries   []tableName // lru list
+	cacheSize int
+}
 
-// 	for _, vv := range dto.Table.KeySchema {
-// 		for _, v := range qkeys {
-// 			if *vv.AttributeName == v {
-// 				if vv.KeyType == types.KeyTypeHash {
-// 					pk = v
-// 				} else {
-// 					sk = v
-// 				}
-// 			}
-// 		}
-// 	}
+var tabCache *tabCacheT
 
-// 	return []string{pk, sk}
+func init() {
+	tabCache = &tabCacheT{cache: make(map[string]*tabEntry)}
+}
 
-// }
+func (h MySQL) GetTableMeta(ctx context.Context, table string) (*key.TabMeta, error) {
+	var err error
+
+	tabCache.Lock()
+
+	e, _ := tabCache.cache[table]
+
+	if e == nil {
+		e = &tabEntry{ch: make(chan struct{}), m: key.NewTabMeta()}
+		tabCache.cache[table] = e
+		tabCache.Unlock()
+		err := h.fetchTableKeys(ctx, table, e.m)
+		if err != nil {
+			return nil, err
+		}
+		//e.m.SetKeys(k)
+		err = h.fetchTableCols(ctx, table, e.m)
+		if err != nil {
+			return nil, err
+		}
+		//e.m.SetAttrs(at)
+		close(e.ch)
+	} else {
+		tabCache.Unlock()
+		<-e.ch
+	}
+	//log.LogAlert(fmt.Sprintf("Keys: %#v", e.keys))
+	return e.m, err
+}
+
+func (h MySQL) fetchTableKeys(ctx context.Context, table string, m *key.TabMeta) error {
+
+	var (
+		err  error
+		rows *sql.Rows
+		r    int
+	)
+
+	// type input struct {
+	// 	Name string
+	// }
+	// var col []db.TblKey
+	// dd:=tx.NewQuery("DD","INFORMATION_SCHEMA.KEY_COLUMN_USAGE")
+	// dd.Select(&col).Where("table_name = ? and CONSTRAINT_NAME = "PRIMARY").Values(table)
+	// err:=dd.Execute()
+	c := strings.Split(table, ".")
+	if len(c) == 1 {
+		rows, err = h.QueryContext(ctx, `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE where table_name = ? and CONSTRAINT_NAME = "PRIMARY"`, c[0])
+	} else {
+		rows, err = h.QueryContext(ctx, `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE where table_schema = ? and table_name = ? and CONSTRAINT_NAME = "PRIMARY"`, c[0], c[1])
+	}
+	if err != nil {
+		log.LogFail(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			log.LogFail(err)
+		}
+		m.AddKey(name, "")
+		r++
+	}
+
+	if r == 0 {
+		e := fmt.Errorf("Keys not found for table %s", table)
+		log.LogFail(e)
+		return e
+	}
+
+	log.LogAlert(fmt.Sprintf("mysql fetch of table keys %#v", m.GetKeys()))
+
+	return err
+}
+
+func (h MySQL) fetchTableCols(ctx context.Context, table string, m *key.TabMeta) error {
+
+	var (
+		err  error
+		rows *sql.Rows
+		r    int
+	)
+	c := strings.Split(table, ".")
+	if len(c) == 1 {
+		rows, err = h.QueryContext(ctx, `select column_name, column_type from information_schema.Columns where table_name = ? order by ordinal_position`, c[0])
+	} else {
+		rows, err = h.QueryContext(ctx, `select column_name, column_type from information_schema.Columns where table_name = ? and table_schema = ? order by ordinal_position`, c[0], c[1])
+	}
+	if err != nil {
+		log.LogFail(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			name string
+			ty   string
+		)
+		if err := rows.Scan(&name, &ty); err != nil {
+			log.LogFail(err)
+		}
+		m.AddAttribute(name, ty)
+		r++
+	}
+	if r == 0 {
+		e := fmt.Errorf("table %q not found", table)
+		log.LogFail(e)
+		return e
+	}
+
+	log.LogAlert(fmt.Sprintf("mysql fetch of table columns %#v", m.GetAttrs()))
+
+	return err
+}

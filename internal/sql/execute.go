@@ -78,7 +78,10 @@ func Execute(ctx context.Context, client *sql.DB, bs []*mut.Mutations, tag strin
 
 			m := m.(*mut.Mutation)
 
-			sqlstmt := genSqlStmt(m)
+			sqlstmt, err := genSqlStmt(m)
+			if err != nil {
+				return err
+			}
 
 			if prepare {
 				// designed to have multiple dml stmts per tx.
@@ -183,9 +186,12 @@ func Execute(ctx context.Context, client *sql.DB, bs []*mut.Mutations, tag strin
 	return nil
 }
 
-func genSqlStmt(m *mut.Mutation) sqlStmt {
+func genSqlStmt(m *mut.Mutation) (*sqlStmt, error) {
 
-	sqlstmt := genSQLStatement(m)
+	sqlstmt, err := genSQLStatement(m)
+	if err != nil {
+		return nil, err
+	}
 
 	//prep.sql = sqlstmt.sql
 	// convert uuid.UID to []byte. TODO: is this necessary?
@@ -195,7 +201,9 @@ func genSqlStmt(m *mut.Mutation) sqlStmt {
 		}
 	}
 
-	return sqlstmt
+	m.SaveSQL(sqlstmt.sql)
+
+	return sqlstmt, nil
 }
 
 // pkg db must support mutations, Insert, Update, Merge:
@@ -223,19 +231,19 @@ func genSQLMerge(m *mut.Mutation, params []interface{}) (string, []interface{}) 
 	for i, col := range m.GetMembers() {
 
 		// does table have a sortk
-		if col.Name == "__" {
+		if col.Name() == "__" {
 			// no it doesn't
 			continue
 		}
 		if i != 0 {
 			sql.WriteByte(',')
 		}
-		sql.WriteString(col.Name)
+		sql.WriteString(col.Name())
 	}
 	sql.WriteString(`) values (`)
 	for i, set := range m.GetMembers() {
 		// does table have a sortk
-		if set.Name == "__" {
+		if set.Name() == "__" {
 			// no it doesn't
 			continue
 		}
@@ -243,7 +251,7 @@ func genSQLMerge(m *mut.Mutation, params []interface{}) (string, []interface{}) 
 			sql.WriteByte(',')
 		}
 		// check for string type and a SQL keyword surrounded by "_" like "$CURRENT_TIMESTAMP$"
-		if s, ok := set.Value.(string); ok {
+		if s, ok := set.Value().(string); ok {
 			if len(s) > 3 && s[0] == '$' && s[len(s)-1] == '$' {
 				if s[1:len(s)-1] == "CURRENT_TIMESTAMP" {
 					sql.WriteString("SYSDATE()")
@@ -254,14 +262,14 @@ func genSQLMerge(m *mut.Mutation, params []interface{}) (string, []interface{}) 
 			}
 		}
 		sql.WriteString("?")
-		params = append(params, set.Value)
+		params = append(params, set.Value())
 	}
 	sql.WriteByte(')')
 
 	//  ON DUPLICATE KEY UPDATE clause
 	var first = true
 	for _, col := range m.GetMembers() {
-		if col.Name == "__" || col.Aty() == mut.IsKey || col.Aty() == mut.IsFilter {
+		if col.Name() == "__" || col.IsKey() || col.IsFilter() {
 			continue
 		}
 		if first {
@@ -270,24 +278,26 @@ func genSQLMerge(m *mut.Mutation, params []interface{}) (string, []interface{}) 
 		} else {
 			sql.WriteString(", ")
 		}
-		sql.WriteString(col.Name)
+		sql.WriteString(col.Name())
 		sql.WriteString(" = ")
 		//
-		switch col.Mod {
-		case mut.Add:
-			sql.WriteString("ifnull(")
-			sql.WriteString(col.Name)
-			sql.WriteString(",0)")
-			sql.WriteByte('+')
-		case mut.Subtract:
-			sql.WriteString("ifnull(")
-			sql.WriteString(col.Name)
-			sql.WriteString(",0)")
-			sql.WriteByte('-')
+		for _, v := range *col.GetModifier() {
+			switch v {
+			case mut.ADD:
+				sql.WriteString("ifnull(")
+				sql.WriteString(col.Name())
+				sql.WriteString(",0)")
+				sql.WriteByte('+')
+			case mut.SUBTRACT:
+				sql.WriteString("ifnull(")
+				sql.WriteString(col.Name())
+				sql.WriteString(",0)")
+				sql.WriteByte('-')
+			}
 		}
 
 		// non-Array attributes - set
-		if s, ok := col.Value.(string); ok {
+		if s, ok := col.Value().(string); ok {
 			if len(s) > 3 && s[0] == '$' && s[len(s)-1] == '$' {
 				if s[1:len(s)-1] == "CURRENT_TIMESTAMP" {
 					sql.WriteString("SYSDATE()")
@@ -299,7 +309,7 @@ func genSQLMerge(m *mut.Mutation, params []interface{}) (string, []interface{}) 
 		}
 		sql.WriteString("?") //col.Param)
 
-		params = append(params, col.Value)
+		params = append(params, col.Value())
 	}
 
 	return sql.String(), params
@@ -311,9 +321,15 @@ func genSQLUpdate(m *mut.Mutation, params []interface{}) (string, []interface{})
 		first bool = true
 		sql   strings.Builder
 	)
-	for _, v := range m.GetMembers() {
-		fmt.Printf("show1 v: %#v\n", v)
-	}
+	// for _, v := range m.GetMembers() {
+	// 	fmt.Printf("show1 v: %#v\n", v)
+	// }
+
+	// getcols during execute phase, or during NewInsert(),NewUpdate() ??
+	// mutation will be populated with table metadata during parse phase
+	// if len(m.GetTableAttrs()) == 0 {
+	// 	m.cols, err := getTableCols(m.GetTable()) // query cache
+	// }
 
 	sql.WriteString(`update `)
 	sql.WriteString(m.GetTable())
@@ -321,7 +337,7 @@ func genSQLUpdate(m *mut.Mutation, params []interface{}) (string, []interface{})
 	// set clause
 	for _, col := range m.GetMembers() {
 
-		if col.Name == "__" || col.Aty() == mut.IsKey || col.Aty() == mut.IsFilter {
+		if col.Name() == "__" || col.IsKey() || col.IsFilter() {
 			continue
 		}
 		if first {
@@ -329,27 +345,34 @@ func genSQLUpdate(m *mut.Mutation, params []interface{}) (string, []interface{})
 		} else {
 			sql.WriteByte(',')
 		}
-		sql.WriteString(col.Name)
+		sql.WriteString(col.Name())
 		sql.WriteByte('=')
 
-		switch col.Mod {
-		case mut.Add:
-			sql.WriteString("ifnull(")
-			sql.WriteString(col.Name)
-			sql.WriteString(",0)")
-			sql.WriteByte('+')
-		case mut.Subtract:
-			sql.WriteString("ifnull(")
-			sql.WriteString(col.Name)
-			sql.WriteString(",0)")
-			sql.WriteByte('-')
-		case mut.Literal:
-			sql.WriteString(col.Value.(string))
-			continue
+		for _, v := range *col.GetModifier() {
+			switch v {
+			case mut.ADD:
+				sql.WriteString("ifnull(")
+				sql.WriteString(col.Name())
+				sql.WriteString(",0)")
+				sql.WriteByte('+')
+			case mut.SUBTRACT:
+				sql.WriteString("ifnull(")
+				sql.WriteString(col.Name())
+				sql.WriteString(",0)")
+				sql.WriteByte('-')
+				// case mut.LITERAL:
+				// 	sql.WriteString(col.Value().(string))
+				//continue
+			case mut.MULTIPLY:
+				sql.WriteString("ifnull(")
+				sql.WriteString(col.Name())
+				sql.WriteString(",0)")
+				sql.WriteByte('*')
+			}
 		}
 
 		// non-Array attributes - set
-		if s, ok := col.Value.(string); ok {
+		if s, ok := col.Value().(string); ok {
 			if len(s) > 3 && s[0] == '$' && s[len(s)-1] == '$' {
 				sql.WriteString(s[1 : len(s)-1])
 				continue
@@ -357,20 +380,20 @@ func genSQLUpdate(m *mut.Mutation, params []interface{}) (string, []interface{})
 		}
 		sql.WriteString("?") //col.Param)
 
-		if col.Mod == mut.Remove {
+		if col.GetModifier().Exists(mut.REMOVE) {
 			params = append(params, "NULL")
 		} else {
-			params = append(params, col.Value)
+			params = append(params, col.Value())
 		}
 	}
 	// Predicate Key clause
 	first = true
 	wkeys := 0
 	for _, col := range m.GetMembers() {
-		if col.Name == "__" {
+		if col.Name() == "__" {
 			continue
 		}
-		if col.Aty() == mut.IsKey {
+		if col.IsKey() {
 
 			if first {
 				sql.WriteString(" where ")
@@ -379,12 +402,12 @@ func genSQLUpdate(m *mut.Mutation, params []interface{}) (string, []interface{})
 				sql.WriteString(" and ")
 			}
 			wkeys++
-			sql.WriteString(col.Name)
+			sql.WriteString(col.Name())
 			sql.WriteString(sqlOpr(col.GetOprStr()))
 			sql.WriteString("?")
 			//
 			// params[col.Param[1:]] = col.Value
-			params = append(params, col.Value)
+			params = append(params, col.Value())
 		}
 	}
 
@@ -401,6 +424,8 @@ func genSQLUpdate(m *mut.Mutation, params []interface{}) (string, []interface{})
 		if wkeys > 0 {
 			sql.WriteString(" and (")
 			p++
+		} else {
+			sql.WriteString(" where ")
 		}
 
 		//where := m.GetWhere()
@@ -418,9 +443,9 @@ func genSQLUpdate(m *mut.Mutation, params []interface{}) (string, []interface{})
 
 		// TODO: check non-keys only
 
-		for _, v := range m.GetMembers() {
-			fmt.Printf("show v: %#v\n", v)
-		}
+		// for _, v := range m.GetMembers() {
+		// 	fmt.Printf("show v: %#v\n", v)
+		// }
 		wa := len(m.GetFilter())
 		for i, v := range m.GetFilter() {
 
@@ -443,17 +468,18 @@ func genSQLUpdate(m *mut.Mutation, params []interface{}) (string, []interface{})
 				}
 			}
 			// search - swap for literal tag value if Filter() attr name matches attr name in Select()
-			sql.WriteString(v.Name)
+			sql.WriteString(v.Name())
 			sql.WriteString(sqlOpr(v.GetOprStr()))
 			sql.WriteByte('?')
 
-			params = append(params, v.Value)
+			params = append(params, v.Value())
 
 			if i == wa-1 {
 				sql.WriteByte(')')
 			}
 		}
 	}
+
 	fmt.Printf("txUpdate: [%s] %#v\n ", sql.String(), params)
 	return sql.String(), params
 
@@ -469,19 +495,19 @@ func genSQLInsertWithValues(m *mut.Mutation, params []interface{}) (string, []in
 
 	for i, col := range m.GetMembers() {
 		// does table have a sortk
-		if col.Name == "__" {
+		if col.Name() == "__" {
 			// no it doesn't
 			continue
 		}
 		if i != 0 {
 			sql.WriteByte(',')
 		}
-		sql.WriteString(col.Name)
+		sql.WriteString(col.Name())
 	}
 	sql.WriteString(`) values (`)
 	for i, set := range m.GetMembers() {
 		// does table have a sortk
-		if set.Name == "__" {
+		if set.Name() == "__" {
 			// no it doesn't
 			continue
 		}
@@ -489,14 +515,14 @@ func genSQLInsertWithValues(m *mut.Mutation, params []interface{}) (string, []in
 			sql.WriteByte(',')
 		}
 		// check for string type and a SQL keyword surrounded by "_" like "$CURRENT_TIMESTAMP$"
-		if s, ok := set.Value.(string); ok {
+		if s, ok := set.Value().(string); ok {
 			if len(s) > 3 && s[0] == '$' && s[len(s)-1] == '$' {
 				sql.WriteString(s[1 : len(s)-1])
 				continue
 			}
 		}
 		sql.WriteString("?")
-		params = append(params, set.Value)
+		params = append(params, set.Value())
 	}
 	sql.WriteByte(')')
 
@@ -513,20 +539,20 @@ func genSQLInsertWithSelect(m *mut.Mutation, params []interface{}) (string, []in
 
 	for i, col := range m.GetMembers() {
 
-		if col.Name == "__" {
+		if col.Name() == "__" {
 			// no it doesn't
 			continue
 		}
 		if i != 0 {
 			sql.WriteByte(',')
 		}
-		sql.WriteString(col.Name)
+		sql.WriteString(col.Name())
 	}
 	sql.WriteByte(')')
 	sql.WriteString(` values ( `)
 
 	for i, col := range m.GetMembers() {
-		if col.Name == "__" {
+		if col.Name() == "__" {
 			// no it doesn't
 			continue
 		}
@@ -535,7 +561,7 @@ func genSQLInsertWithSelect(m *mut.Mutation, params []interface{}) (string, []in
 		}
 		sql.WriteString("?")
 
-		params = append(params, col.Value)
+		params = append(params, col.Value())
 	}
 	sql.WriteByte(')')
 	//sql.WriteString(" from dual where NOT EXISTS (select 1 from EOP where PKey=@PKey and SortK=@SortK) ")
@@ -543,40 +569,173 @@ func genSQLInsertWithSelect(m *mut.Mutation, params []interface{}) (string, []in
 	return sql.String(), params
 }
 
-func genSQLStatement(m *mut.Mutation) sqlStmt {
+func genSQLDelete(m *mut.Mutation, params []interface{}) (string, []interface{}) {
 
-	var params []interface{}
+	var (
+		first bool = true
+		sql   strings.Builder
+	)
+	// for _, v := range m.GetMembers() {
+	// 	fmt.Printf("show1 v: %#v\n", v)
+	// }
+
+	// getcols during execute phase, or during NewInsert(),NewUpdate() ??
+	// mutation will be populated with table metadata during parse phase
+	// if len(m.GetTableAttrs()) == 0 {
+	// 	m.cols, err := getTableCols(m.GetTable()) // query cache
+	// }
+
+	sql.WriteString(`delete from `)
+	sql.WriteString(m.GetTable())
+
+	// Predicate Key clause
+	first = true
+	wkeys := 0
+	for _, col := range m.GetMembers() {
+		if col.Name() == "__" {
+			continue
+		}
+		if col.IsKey() {
+
+			if first {
+				sql.WriteString(" where ")
+				first = false
+			} else {
+				sql.WriteString(" and ")
+			}
+			wkeys++
+			sql.WriteString(col.Name())
+			sql.WriteString(sqlOpr(col.GetOprStr()))
+			sql.WriteString("?")
+			//
+			// params[col.Param[1:]] = col.Value
+			params = append(params, col.Value())
+		}
+	}
+
+	// ************** Where() non-key *************
+	p := 0
+	if len(m.GetWhere()) > 0 {
+
+		// TODO: check non-keys only
+
+		if m.GetOr() > 0 || m.GetAnd() > 0 {
+			panic(fmt.Errorf("Cannot mix Filter() with d Where()"))
+		}
+
+		if wkeys > 0 {
+			sql.WriteString(" and (")
+			p++
+		} else {
+			sql.WriteString(" where ")
+		}
+
+		//where := m.GetWhere()
+		sql.WriteString(m.GetWhere())
+
+		if p > 0 {
+			sql.WriteByte(')')
+		}
+
+		params = append(params, m.GetValues()...)
+
+	} else {
+
+		// ************** Filter *************
+
+		// TODO: check non-keys only
+
+		// for _, v := range m.GetMembers() {
+		// 	fmt.Printf("show v: %#v\n", v)
+		// }
+		wa := len(m.GetFilter())
+		for i, v := range m.GetFilter() {
+
+			if m.GetOr() > 0 && m.GetAnd() > 0 {
+				panic(fmt.Errorf("Cannot mix OrFilter, AndFilter conditions. Use Where() & Values() instead"))
+			}
+
+			//	var found bool
+
+			if i == 0 {
+				if wkeys > 0 {
+					sql.WriteString(" and (")
+				}
+			} else if wa > 0 && i <= wa-1 {
+				switch v.BoolCd() {
+				case mut.AND:
+					sql.WriteString(" and ")
+				case mut.OR:
+					sql.WriteString(" or ")
+				}
+			}
+			// search - swap for literal tag value if Filter() attr name matches attr name in Select()
+			sql.WriteString(v.Name())
+			sql.WriteString(sqlOpr(v.GetOprStr()))
+			sql.WriteByte('?')
+
+			params = append(params, v.Value())
+
+			if i == wa-1 {
+				sql.WriteByte(')')
+			}
+		}
+	}
+
+	fmt.Printf("txDelete: [%s] %#v\n ", sql.String(), params)
+	return sql.String(), params
+
+}
+
+func genSQLStatement(m *mut.Mutation) (*sqlStmt, error) {
+
+	var (
+		err    error
+		params []interface{}
+	)
+
+	if m.GetSubmit() != nil {
+		attrs, err := m.MarshalAttributes(m.GetSubmit(), "mdb")
+		if err != nil {
+			return nil, err
+		}
+		m.SetMembers(attrs)
+	}
 
 	switch m.GetOpr() {
 
 	case mut.Merge:
 
 		m, params := genSQLMerge(m, params)
-		return sqlStmt{sql: m, params: params}
+		return &sqlStmt{sql: m, params: params}, nil
 
 	case mut.Update:
 
 		m, params := genSQLUpdate(m, params)
-		return sqlStmt{sql: m, params: params}
+		fmt.Printf("genSQLUpdate: [%s]\n. %d", m, len(params))
+		return &sqlStmt{sql: m, params: params}, nil
 
 	case mut.Insert:
 
 		m, params := genSQLInsertWithValues(m, params)
-		return sqlStmt{sql: m, params: params}
+		fmt.Printf("genSQLInsert: [%s]\n. %d", m, len(params))
+		return &sqlStmt{sql: m, params: params}, nil
 
 	case mut.Delete:
-	// TODO: implement
+
+		m, params := genSQLDelete(m, params)
+		fmt.Printf("genSQLDelete: [%s]\n. %d", m, len(params))
+		return &sqlStmt{sql: m, params: params}, nil
 
 	case mut.TruncateTbl:
-		return sqlStmt{sql: "truncate " + m.GetTable()}
+		return &sqlStmt{sql: "truncate " + m.GetTable()}, nil
 	// TODO: implement
 
 	default:
-		panic(fmt.Errorf("db execute error: opr is not assigned [%v]", m.GetOpr()))
-		return sqlStmt{}
+		return nil, fmt.Errorf("db execute error: opr is not assigned [%v]", m.GetOpr())
 	}
 
-	return sqlStmt{}
+	return nil, err
 
 }
 

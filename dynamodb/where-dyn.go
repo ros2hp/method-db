@@ -8,17 +8,17 @@ import (
 	"strconv"
 	"strings"
 	"text/scanner"
+	//	"unicode"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func buildConditionExpr(src string, exprNames map[string]string, exprValues map[string]types.AttributeValue) (string, int) {
+func buildConditionExpr(src string, exprNames map[string]string, exprValues map[string]types.AttributeValue) (*string, int) {
 
 	return buildFilterExpr(src, exprNames, exprValues)
 }
 
-// buildFilterExpr() validates method-db where()  and builds attribute: map[string]strig and value map[string]attribuveValue (based on Value() arguments)
-func buildFilterExpr(src string, exprNames map[string]string, exprValues map[string]types.AttributeValue) (string, int) {
+func buildFilterExpr(src string, exprNames map[string]string, exprValues map[string]types.AttributeValue) (*string, int) {
 	// 1. validate
 	// open paranthesis equals closed
 	// count of ?
@@ -70,9 +70,11 @@ func buildFilterExpr(src string, exprNames map[string]string, exprValues map[str
 
 	var (
 		parOpen, parClose, binds int
+		sqbOpen, sqbClose        int
 		sc                       scanner.Scanner
 		genId                    []byte
 		s                        strings.Builder
+		nospace, noav            bool
 	)
 	genId = append(genId, 'a'-1)
 
@@ -98,6 +100,10 @@ func buildFilterExpr(src string, exprNames map[string]string, exprValues map[str
 		return genId
 	}
 	sc.Init(strings.NewReader(src))
+	// sc.IsIdentRune = func(ch rune, i int) bool {
+	// 	return ch == '[' && i > 1 || ch == '_' && i > 1 || unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == ']' && i > 3
+	// }
+	xValues := len(exprValues) //len(exprNames)
 
 	for tok := sc.Scan(); tok != scanner.EOF; tok = sc.Scan() {
 
@@ -110,15 +116,33 @@ func buildFilterExpr(src string, exprNames map[string]string, exprValues map[str
 		case "(":
 			s.WriteString(sc.TokenText())
 			parOpen++
+			nospace = true
 		case ")":
 			s.WriteString(sc.TokenText())
 			parClose++
+			nospace = true
+		case "[":
+			s.WriteString(sc.TokenText())
+			sqbOpen++
+			nospace = true
+			noav = true
+		case "]":
+			s.WriteString(sc.TokenText())
+			sqbClose++
+			nospace = true
+			noav = false
 		case "?":
 			// bind variables
+			s.WriteString(":" + strconv.Itoa(xValues+binds))
 			binds++
-			s.WriteString(":" + strconv.Itoa(binds))
-		case ",", "+", "-", "*", "/", "<>", ">=", "<=", "<", ">", "=":
+		case ",", "+", "-", "*", "/", "<>", "<", ">", "=":
+			if l == ">" || l == "<" {
+				nospace = true
+			}
 			s.WriteString(sc.TokenText())
+		case ".":
+			s.WriteString(sc.TokenText())
+			nospace = true
 		case "between", "in":
 			s.WriteString(sc.TokenText())
 		case "not", "or", "and":
@@ -129,24 +153,31 @@ func buildFilterExpr(src string, exprNames map[string]string, exprValues map[str
 			// must be a table attribute or a literal
 			//	fmt.Println("Must be an attribute: ", sc.TokenText(), tok)
 			// add to ExpressionNames sc.TokenText()[0] == '"'
-			if tok == scanner.String || tok == scanner.Int || tok == scanner.Float {
-				v := ":v" + string(genId_())
-				switch tok {
-				case scanner.Int:
-					av := new(types.AttributeValueMemberN)
-					av.Value = sc.TokenText()
-					exprValues[v] = av
-				case scanner.Float:
-					av := new(types.AttributeValueMemberN)
-					av.Value = sc.TokenText()
-					exprValues[v] = av
-				case scanner.String:
-					av := new(types.AttributeValueMemberS)
-					av.Value = sc.TokenText()
-					exprValues[v] = av
-				}
-				s.WriteString(v)
 
+			if tok == scanner.String || tok == scanner.Int || tok == scanner.Float {
+				if noav {
+					s.WriteString(sc.TokenText())
+					nospace = true
+				} else {
+					v := ":v" + string(genId_())
+					switch tok {
+					case scanner.Int:
+						av := new(types.AttributeValueMemberN)
+						av.Value = sc.TokenText()
+						exprValues[v] = av
+					case scanner.Float:
+						av := new(types.AttributeValueMemberN)
+						fmt.Println("av.Value = ", av)
+						av.Value = sc.TokenText()
+						exprValues[v] = av
+					case scanner.String:
+						av := new(types.AttributeValueMemberS)
+						s := sc.TokenText()
+						av.Value = s[1 : len(s)-1] // trim quote
+						exprValues[v] = av
+					}
+					s.WriteString(v)
+				}
 			} else {
 
 				var n string
@@ -162,13 +193,21 @@ func buildFilterExpr(src string, exprNames map[string]string, exprValues map[str
 					exprNames[n] = sc.TokenText()
 				}
 				s.WriteString(n)
+				if sc.Peek() == '[' {
+					nospace = true
+				}
 			}
 		}
 		// add  whitespace
-		s.WriteString(" ")
+		if !nospace {
+			s.WriteString(" ")
+		} else {
+			nospace = false
+		}
 	}
 	if parOpen != parClose {
 		panic(fmt.Errorf("paranthesis do not match in query condition %q", s))
 	}
-	return s.String(), binds
+	w := s.String()
+	return &w, binds
 }
