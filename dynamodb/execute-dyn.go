@@ -592,9 +592,9 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 			return nil, fmt.Errorf("expected %d bind variables in Values, got %d", binds, len(m.GetValues()))
 		}
 
+		ii := len(exprValues)
 		for i, v := range m.GetValues() {
-			ii := i + 1
-			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(m, v)
+			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(m, v)
 		}
 
 		fmt.Println("exprValues: ", len(exprValues))
@@ -774,9 +774,9 @@ func txDelete(m *mut.Mutation) (*types.TransactWriteItem, error) {
 			return nil, fmt.Errorf("expected %d bind variables in Values, got %d", binds, len(m.GetValues()))
 		}
 
+		ii := len(exprValues)
 		for i, v := range m.GetValues() {
-			ii := i + 1
-			exprValues[":"+strconv.Itoa(ii)] = marshalAvUsingValue(m, v)
+			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(m, v)
 		}
 
 	} else {
@@ -2276,18 +2276,7 @@ func exQueryStd(ctx context.Context, client *DynamodbHandle, q *query.QueryHandl
 				fmt.Println("exprValues: ", k, vv.Value)
 			}
 		}
-		// fmt.Println("exprValues: 0 ", exprValues[":0"].(*types.AttributeValueMemberN).Value)
-		// fmt.Println("exprValues: 1 ", exprValues[":va"].(*types.AttributeValueMemberS).Value)
-		// build expression.Expression
-		// b := expression.NewBuilder().WithKeyCondition(keyc)
-		// if proj != nil {
-		// 	b = b.WithProjection(*proj)
-		// }
 
-		// expr, err := b.Build()
-		// if err != nil {
-		// 	return newDBExprErr("exQueryStd", "", "", err)
-		// }
 		// append expression Names and Values
 		for k, v := range expr.Names() {
 			exprNames[k] = v
