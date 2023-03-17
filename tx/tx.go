@@ -420,14 +420,9 @@ func (h *TxHandle) NewInsert(table tbl.Name) *mut.Mutation {
 		h.addErr(fmt.Errorf("Mutation Handle %s, has already been executed. Create a new handle (using New(), NewTx(), NewBatch())  before defining mutations.", h.Tag))
 		return nil
 	}
-	// validate merge keys with actual table keys
-	meta, err := h.dbHdl.GetTableMeta(h.ctx, string(table))
-	if err != nil {
-		h.addErr(fmt.Errorf("Error in finding table keys for table %q: %w", table, err))
-		return nil
-	}
+
+	//ignore table description for (Keys) for inserts. Keep it fast by moving check to db.
 	m := mut.NewInsert(table, h.Tag)
-	m.AddTableMeta(meta)
 	h.add(m)
 	return m
 }

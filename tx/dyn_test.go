@@ -1193,6 +1193,121 @@ func TestDynUpdateList(t *testing.T) {
 	}
 }
 
+func TestDynMutBatchInsert(t *testing.T) {
+
+	utx := NewBatch("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	m := mut.NewInsert(gtbl).AddMember("PKey", 2501).AddMember("SortK", "DDD")
+	utx.Add(m)
+	err = utx.Execute()
+
+	if err != nil {
+		if !strings.Contains(err.Error(), "The provided expression refers to an attribute that does not exist in the item") {
+
+			t.Errorf("Error: in Execute of PreTestUpdateList %s", err)
+		}
+		t.Logf("Error: %s", err)
+	}
+
+}
+
+func TestDynMutBatchInsertNoKey(t *testing.T) {
+
+	utx := NewBatch("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	m := mut.NewInsert(gtbl).AddMember("PKey2", 2501)
+	utx.Add(m)
+	err = utx.Execute()
+
+	if err != nil {
+		if !strings.Contains(err.Error(), "The provided key element does not match the schema") {
+
+			t.Errorf("Error: in Execute of PreTestUpdateList %s", err)
+		}
+		//	t.Logf("Error: %s", err)
+	}
+
+}
+
+func TestDynMutStdInsert(t *testing.T) {
+
+	utx := New("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	m := mut.NewInsert(gtbl).AddMember("PKey", 2501).AddMember("SortK", "AAA")
+	utx.Add(m)
+	err = utx.Execute()
+
+	if err != nil {
+		if !strings.Contains(err.Error(), "The provided expression refers to an attribute that does not exist in the item") {
+
+			t.Errorf("Error: in Execute of PreTestUpdateList %s", err)
+		}
+		t.Logf("Error: %s", err)
+	}
+
+}
+
+// insert does not fetch table description of keys. So Key modifier in AddMember has nothing to compare to so is ignored.
+func TestDynMutStdInsertKey(t *testing.T) {
+
+	utx := New("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	m := mut.NewInsert(gtbl).AddMember("PKey", 2501, mut.KEY).AddMember("SortK", "BBB")
+	utx.Add(m)
+	err = utx.Execute()
+
+	if err != nil {
+		if !strings.Contains(err.Error(), "The provided expression refers to an attribute that does not exist in the item") {
+
+			t.Errorf("Error: in Execute of PreTestUpdateList %s", err)
+		}
+		t.Logf("Error: %s", err)
+	}
+
+}
+
+// Rather than get Method-db to check that all table keys are added when using mutation.Insert, leave it to database to detect.
+func TestDynMutStdInsertNoKey(t *testing.T) {
+
+	utx := New("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	m := mut.NewInsert(gtbl).AddMember("PKey2", 2501, mut.KEY).AddMember("SortK2", "BBB")
+	utx.Add(m)
+	err = utx.Execute()
+
+	if err != nil {
+		if !strings.Contains(err.Error(), "Missing the key PKey in the item") {
+
+			t.Errorf("Error: in Execute of PreTestUpdateList %s", err)
+		}
+		t.Logf("Error: %s", err)
+	}
+
+}
+
+func TestDynTxStdInsertNoKey(t *testing.T) {
+
+	utx := New("PreTestUpdList") // std api
+	//  developer specified keys - not checked if GetTableKeys() not implemented, otherwise checked
+	//	utx.NewUpdate(gtbl).Key("PKey", 1001).Key("SortK", "Sydney").Where(`attribute_exists(MaxPopulation) and Population>MaxPopulation`).Subtract("MaxPopulation", 1)
+	utx.NewInsert(gtbl).AddMember("PKey2", 2501, mut.KEY).AddMember("SortK2", "BBB")
+	err = utx.Execute()
+
+	if err != nil {
+		if !strings.Contains(err.Error(), "Missing the key PKey in the item") {
+
+			t.Errorf("Error: in Execute of PreTestUpdateList %s", err)
+		}
+		t.Logf("Error: %s", err)
+	}
+
+}
+
 func TestDynPutList(t *testing.T) {
 
 	listinput := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
@@ -2366,8 +2481,11 @@ func TestDynAttributeValidation(t *testing.T) {
 		t.Errorf("AttributeValidationMissingKey: expected 1 error got %d", len(utx.GetErrors()))
 	}
 	if err != nil {
-		if !strings.Contains(err.Error(), "Missing key specification") {
-			t.Errorf(`AttributeValidationMissingKey: Expected error "Missing key specification" got %q"`, err.Error())
+		if !strings.Contains(err.Error(), "ValidationException") {
+			t.Errorf(`AttributeValidationMissingKey: Expected error "ValidationException" got %q"`, err.Error())
+		}
+		if !strings.Contains(err.Error(), "Missing the key SortK in the item") {
+			t.Errorf(`AttributeValidationMissingKey: Expected error "Missing the key SortK in the item" got %q"`, err.Error())
 		}
 
 	}
@@ -2587,6 +2705,7 @@ func TestDynAttributeValidation3(t *testing.T) {
 	}
 	t.Logf("log: %s", err)
 }
+
 func TestDynReturnValues(t *testing.T) {
 
 	pk := 3050

@@ -566,8 +566,10 @@ func (m *Mutation) AddTableMeta(meta *key.TabMeta) {
 }
 
 func (m *Mutation) GetTableKeys() []key.TableKey {
-	return m.tblDesc.GetKeys()
-	//return m.keys
+	if m.tblDesc != nil {
+		return m.tblDesc.GetKeys()
+	}
+	return nil
 }
 
 func (m *Mutation) GetTableAttrs() key.AttributeT {
@@ -1144,78 +1146,72 @@ func (im *Mutation) AddMember(attr string, value interface{}, mod ...Modifier) *
 
 	//tableKeys are correctly ordered based on table def
 	// check attr is key
-	var isKey_ bool
-	for i, kk := range im.GetTableKeys() {
-		//
-		if strings.ToUpper(kk.Name) == strings.ToUpper(attr) {
-			isKey_ = true
-			if i == 0 {
-				m.aty = Partition
-			}
-			if i == 1 {
-				m.aty = Sortkey
-			}
-		}
-	}
+	var isKey_, eqySet, operSet bool
 
-	// validate Modifier value.
-	// Must specifiy IsFilter to be used in where clause or filter expression, otherwise will be used to Set in a Update mutation.
-	switch len(mod) {
-	case 0:
-		if im.opr == Insert {
-			break
-		}
-		//	below is not an error. KEY is used as target identifier and is passed into where clause, not set.
-		if isKey_ {
-			im.addErr(fmt.Errorf("Validation error in %s. %q is a key in table and cannot be updated", im.tag, attr))
-		}
-
-	default:
-		// check only if table keys supplied
-		if len(im.GetTableKeys()) > 0 {
-			if im.opr == Insert {
-				break
+	if im.opr != Insert {
+		for i, kk := range im.GetTableKeys() {
+			//
+			if strings.ToUpper(kk.Name) == strings.ToUpper(attr) {
+				isKey_ = true
+				if i == 0 {
+					m.aty = Partition
+				}
+				if i == 1 {
+					m.aty = Sortkey
+				}
 			}
+		}
+		// validate Modifier value.
+		// Must specifiy IsFilter to be used in where clause or filter expression, otherwise will be used to Set in a Update mutation.
+		switch len(mod) {
+		case 0:
+			//	below is not an error. KEY is used as target identifier and is passed into where clause, not set.
 			if isKey_ {
 				im.addErr(fmt.Errorf("Validation error in %s. %q is a key in table and cannot be updated", im.tag, attr))
-				return nil
+			}
+
+		default:
+			// check only if table keys supplied
+			if len(im.GetTableKeys()) > 0 {
+				if isKey_ {
+					im.addErr(fmt.Errorf("Validation error in %s. %q is a key in table and cannot be updated", im.tag, attr))
+					return nil
+				}
 			}
 		}
-	}
-	var eqySet, operSet bool
-	// set equality (eqy) EQ..NE,<any db function e.g. BEGINSWITH, for mutation - only appropriate for IsKey, IsFilter modifiers
-	// AddAttribute(SortK,<>,mut.IsKey,"BeginsWith")
-	for i, v := range mod {
+		// set equality (eqy) EQ..NE,<any db function e.g. BEGINSWITH, for mutation - only appropriate for IsKey, IsFilter modifiers
+		// AddAttribute(SortK,<>,mut.IsKey,"BeginsWith")
+		for i, v := range mod {
 
-		switch v {
+			switch v {
 
-		// inequalities, used in Key, Filter only.
-		case EQ, NE, GT, GE, LT, LE, NOT:
-			if len(mod) == 1 {
-				return im.Filter(attr, value, mod...)
-			} else {
-				im.addErr(fmt.Errorf("Validation error in %s. Expected one Inequality got %d", len(mod)))
+			// inequalities, used in Key, Filter only.
+			case EQ, NE, GT, GE, LT, LE, NOT:
+				if len(mod) == 1 {
+					return im.Filter(attr, value, mod...)
+				} else {
+					im.addErr(fmt.Errorf("Validation error in %s. Expected one Inequality got %d", len(mod)))
+				}
+				// m.eqy = mod[i][2:]
+				// m.aty = Filter
+				//	im.addErr(fmt.Errorf("Validation error in %s. %s defined on attribute %s for Key or Filter only", im.tag, m.eqy, attr))
+
+			// math operations
+			case ADD, SUBTRACT, MULTIPLY, SETNULL:
+				m.oper = mod[i]
+				//	m.mod.Delete(SET)
+				operSet = true
 			}
-			// m.eqy = mod[i][2:]
-			// m.aty = Filter
-			//	im.addErr(fmt.Errorf("Validation error in %s. %s defined on attribute %s for Key or Filter only", im.tag, m.eqy, attr))
 
-		// math operations
-		case ADD, SUBTRACT, MULTIPLY, SETNULL:
-			m.oper = mod[i]
-			//	m.mod.Delete(SET)
-			operSet = true
+			// database function
+			if v[0] != '_' {
+				// db function e.g. BeginsWith
+				m.eqy = mod[i]
+				eqySet = true
+			}
+
 		}
-
-		// database function
-		if v[0] != '_' {
-			// db function e.g. BeginsWith
-			m.eqy = mod[i]
-			eqySet = true
-		}
-
 	}
-
 	// default operation for Array datatype is APPEND
 	if IsArray(value) {
 
@@ -1275,8 +1271,6 @@ func (im *Mutation) GetSubmit() interface{} {
 func (im *Mutation) MarshalAttributes(in interface{}, tag_ ...string) ([]*Member, error) { // []*Attribute
 
 	//keys := im.GetTableKeys()
-	attrs := im.GetTableAttrs()
-	fmt.Println(" : len(attrs) ", len(attrs))
 	var ty reflect.Type
 	var vi reflect.Value
 
@@ -1447,15 +1441,9 @@ func (im *Mutation) MarshalAttributes(in interface{}, tag_ ...string) ([]*Member
 					case KEY:
 						atrtag = append(atrtag, KEY)
 					}
-				}
-			}
 
-			// check field is a table attribute - makes sense for SQL where schema is fixed, but not for Dynamodb. Only check for Keys.
-			// fmt.Println("check in attrs for ", fnm)
-			if len(attrs) > 0 {
-				if _, ok := attrs[fnm]; !ok {
-					fmt.Println("Continue....")
-					continue
+					fmt.Println("tag: ", t)
+
 				}
 			}
 
@@ -1471,6 +1459,9 @@ func (im *Mutation) MarshalAttributes(in interface{}, tag_ ...string) ([]*Member
 		}
 
 	case Update:
+
+		attrs := im.GetTableAttrs()
+		fmt.Println(" : len(attrs) ", len(attrs))
 
 		// table attribute names
 		for f := 0; f < ty.NumField(); f++ {

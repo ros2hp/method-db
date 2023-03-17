@@ -569,12 +569,13 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 	} else {
 
 		//  MethodDB Attribute() allow will create a dynmodb LIST for all slice types. Developer can override using BINARYSET modifier.
+		fmt.Println("len(m.GetTableKeys()) != len(keyAttrs) ", len(m.GetTableKeys()), len(keyAttrs))
 		if len(m.GetTableKeys()) != len(keyAttrs) {
 			switch len(m.GetTableKeys()) {
 			case 1:
-				return nil, newDBExprErr("txPut", "", "", fmt.Errorf(`Missing key specification. Table has 1 key`))
+				return nil, newDBExprErr("txPut", "", "", fmt.Errorf(`Missing key attribute. Table has 1 key`))
 			case 2:
-				return nil, newDBExprErr("txPut", "", "", fmt.Errorf(`Missing key specification. Table has 2 Keys`))
+				return nil, newDBExprErr("txPut", "", "", fmt.Errorf(`Missing key attribute. Table has 2 Keys`))
 			}
 		}
 		av, err = marshalAVMap(m)
