@@ -598,10 +598,6 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(m, v)
 		}
 
-		fmt.Println("exprValues: ", len(exprValues))
-		fmt.Println("exprKeyCond: ", *exprCond)
-		fmt.Println("exprNames: ", exprNames)
-
 		if len(exprNames) == 0 {
 			put = &types.Put{
 				Item:                av,
@@ -751,13 +747,6 @@ func txDelete(m *mut.Mutation) (*types.TransactWriteItem, error) {
 		exprCond = expr.Condition()
 		exprNames = expr.Names()
 		exprValues = expr.Values()
-
-		fmt.Println("===== GETFILTERATTRS=====")
-		fmt.Println("exprNames: ", exprNames)
-		if exprCond != nil {
-			fmt.Println("exprCond: ", *exprCond)
-		}
-		fmt.Println("exprValues: ", exprValues)
 
 	} else if len(m.GetWhere()) > 0 {
 
@@ -2239,12 +2228,6 @@ func exQueryStd(ctx context.Context, client *DynamodbHandle, q *query.QueryHandl
 	exprValues = expr.Values()
 	exprFilter = expr.Filter()
 
-	fmt.Printf("exprValues: %d", len(exprValues))
-	// fmt.Println("exprValues: ", exprValues[":1"].(*types.AttributeValueMemberN).Value)
-	// fmt.Println("exprValues: ", exprValues[":0"].(*types.AttributeValueMemberS).Value)
-	//	fmt.Println("exprFilter: ", *exprFilter)
-	fmt.Println("exprKeyCond: ", *exprKeyCond)
-
 	// Where expression defined
 	if len(q.GetWhere()) > 0 {
 
@@ -2260,22 +2243,6 @@ func exQueryStd(ctx context.Context, client *DynamodbHandle, q *query.QueryHandl
 		ii := 1 // values in keys
 		for i, v := range q.GetValues() {
 			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(nil, v)
-		}
-
-		if exprStr != nil {
-			fmt.Println("exprStr: ", *exprStr)
-		} else {
-			fmt.Println("exprStr is nil ")
-		}
-		fmt.Println("exprNames: ", exprNames)
-		for k, v := range exprValues {
-
-			switch vv := v.(type) {
-			case *types.AttributeValueMemberN:
-				fmt.Println("exprValues: ", k, vv.Value)
-			case *types.AttributeValueMemberS:
-				fmt.Println("exprValues: ", k, vv.Value)
-			}
 		}
 
 		// append expression Names and Values

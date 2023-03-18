@@ -1076,7 +1076,6 @@ func (q *QueryHandle) Select(a_ ...interface{}) *QueryHandle {
 				if i > -1 {
 					name = name[:i]
 				}
-				fmt.Printf("in Select(), name = %q\n", name)
 
 				switch {
 				case name == "-":
