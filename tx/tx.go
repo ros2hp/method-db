@@ -1,6 +1,7 @@
 package tx
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -333,6 +334,7 @@ func (h *TxHandle) add(m dbs.Mutation) error {
 	// check if m already added
 	for _, v := range *h.m {
 		if v == m {
+			fmt.Println("....mutation already added")
 			return nil
 		}
 	}
@@ -342,6 +344,7 @@ func (h *TxHandle) add(m dbs.Mutation) error {
 		h.MakeBatch()
 	}
 	// add mutation to active batch
+
 	*h.m = append(*h.m, m)
 
 	return nil
@@ -424,6 +427,7 @@ func (h *TxHandle) NewInsert(table tbl.Name) *mut.Mutation {
 	//ignore table description for (Keys) for inserts. Keep it fast by moving check to db.
 	m := mut.NewInsert(table, h.Tag)
 	h.add(m)
+
 	return m
 }
 
@@ -457,10 +461,6 @@ func (h *TxHandle) NewDelete(table tbl.Name) *mut.Mutation {
 	if h.done {
 		h.addErr(fmt.Errorf("Mutation Handle %s, has already been executed. Create a new handle (using New(), NewTx(), NewBatch())  before defining mutations. ", h.Tag))
 		return nil
-	}
-
-	if h.api == db.BatchAPI {
-		panic(fmt.Errorf("Cannot have an Update operation included in a batch"))
 	}
 
 	// validate merge keys with actual table keys
@@ -714,7 +714,6 @@ func (h *TxHandle) MergeMutation(table tbl.Name, opr mut.StdMut, keys []key.Key)
 	}
 	// generate ordered list of merge keys based on table key order and argument keys.
 	mergeKeys := make([]key.MergeKey, len(keys), len(keys))
-
 	// keys may not be  ordered as per table definition
 	for _, k := range keys {
 		var found, found2 bool
@@ -751,13 +750,13 @@ func (h *TxHandle) MergeMutation(table tbl.Name, opr mut.StdMut, keys []key.Key)
 
 	h.am.AddTableMeta(meta)
 	// h.am.AddTableKeys(tableKeys) // added 27 Dec 2022
-	// h.am.AddKeys(keys)           // added 27 Dec 2022
+	h.am.AddKeys(keys) // added 27 Dec 2022
 
 	h.sm = h.findSourceMutation(table, mergeKeys)
+
 	if h.sm == nil {
 		h.add(h.am)
 	}
-
 	return h
 }
 
@@ -867,6 +866,10 @@ func (h *TxHandle) GetMergedMutation(table tbl.Name, keys []key.Key) (*mut.Mutat
 	return s, nil
 }
 
+func (h *TxHandle) Attribute(attr string, value interface{}, mod ...mut.Modifier) *TxHandle {
+	return h.AddMember(attr, value, mod...)
+}
+
 // func (h *TxHandle) AddCondition(cond mut.Cond, attr string, value ...interface{}) *TxHandle {
 // 	if h.sm == nil {
 // 		h.am.AddCondition(cond, attr, value)
@@ -880,7 +883,7 @@ func (h *TxHandle) GetMergedMutation(table tbl.Name, keys []key.Key) (*mut.Mutat
 // Alternate AddMember associated with NewInsert, NewUpdate, NewMerge, member of Mutation (not TxHandel)
 func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifier) *TxHandle {
 
-	var opr mut.ModifierS
+	//var opr mut.ModifierS
 	// am - active mutation
 	// bm - batch of batch mutations
 	// sm - source mutation
@@ -925,6 +928,7 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 		// 	*h.m = (*h.m)[:len(*h.m)-1]
 		// }
 		var found bool
+		// get source mutation
 		sa := h.sm.GetMembers()
 		for i, v := range sa { // source mutation attributes
 
@@ -934,11 +938,16 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 			}
 			// found attribute belonging to source mutation
 			found = true
-			opr = *v.GetModifier()
+			//	opr = *v.GetModifier()
+			mod := mut.ModifierS(mod_)
+
 			if len(mod_) > 0 {
-				opr = mod_ // override source attributes modifer with current mutation attribute modifier
+				//opr = mod_ // override source attributes modifer with current mutation attribute modifierf
+				for _, vv := range mod_ {
+					v.GetModifier().Assign(vv)
+				}
 			}
-			if opr.Exists(mut.REMOVE) {
+			if mod.Exists(mut.REMOVE) {
 				// set source member operator to remove
 				v.GetModifier().Assign(mut.REMOVE) // TODO: v.SetRemove()??, only occassion where Mod is assigned
 				return h
@@ -949,69 +958,89 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 			case int64:
 
 				if n, ok := value.(int64); !ok {
-					panic(fmt.Errorf("AddMember2: Expected int64 got passed in value of %T", value))
+					panic(fmt.Errorf("AddMember: Expected int64 got passed in value of %T", value))
 				} else {
-					if v.GetModifier().Exists(mut.ADD) {
+					if mod.Exists(mut.ADD) {
 						x += n
 						sa[i].SetValue(x)
-					} else if v.GetModifier().Exists(mut.SUBTRACT) {
+					} else if mod.Exists(mut.SUBTRACT) {
 						x -= n
 						sa[i].SetValue(x)
-					} else if v.GetModifier().Exists(mut.SET) {
-						sa[i].SetValue(x)
+					} else if mod.Exists(mut.SET) {
+						sa[i].SetValue(n)
 					} else {
-						panic(fmt.Errorf("Expected member operator of Set, Add, Subtract got %q", opr))
+						panic(fmt.Errorf("Expected member operator of Set, Add, Subtract got %q", mod))
+					}
+				}
+
+			case int32:
+
+				if n, ok := value.(int32); !ok {
+					panic(fmt.Errorf("AddMember: Expected int64 got passed in value of %T", value))
+				} else {
+					if mod.Exists(mut.ADD) {
+						x += n
+						sa[i].SetValue(x)
+					} else if mod.Exists(mut.SUBTRACT) {
+						x -= n
+						sa[i].SetValue(x)
+					} else if mod.Exists(mut.SET) {
+						sa[i].SetValue(n)
+					} else {
+						panic(fmt.Errorf("Expected member operator of Set, Add, Subtract got %q", mod))
 					}
 				}
 
 			case int:
 
 				if n, ok := value.(int); !ok {
-					panic(fmt.Errorf("AddMember2: Expected int got passed in value of %T", value))
+					panic(fmt.Errorf("AddMember: Expected int got passed in value of %T", value))
 				} else {
-					if v.GetModifier().Exists(mut.ADD) {
+					if mod.Exists(mut.ADD) {
 						x += n
 						sa[i].SetValue(x)
-					} else if v.GetModifier().Exists(mut.SUBTRACT) {
+					} else if mod.Exists(mut.SUBTRACT) {
 						x -= n
 						sa[i].SetValue(x)
-					} else if v.GetModifier().Exists(mut.SET) {
-						sa[i].SetValue(x)
+					} else if mod.Exists(mut.SET) {
+						sa[i].SetValue(n)
 					} else {
-						panic(fmt.Errorf("Expected member operator of Set, Add, Subtract got %q", opr))
+						panic(fmt.Errorf("Expected member operator of Set, Add, Subtract got %q", mod))
 					}
 				}
 
 			case float64:
 
 				if n, ok := value.(float64); !ok {
-					panic(fmt.Errorf("AddMember2: Expected float64 got passed in value of %T", value))
+					panic(fmt.Errorf("AddMember: Expected float64 got passed in value of %T", value))
 				} else {
-					if v.GetModifier().Exists(mut.ADD) {
+					if mod.Exists(mut.ADD) {
 						x += n
 						sa[i].SetValue(x)
-					} else if v.GetModifier().Exists(mut.SUBTRACT) {
+					} else if mod.Exists(mut.SUBTRACT) {
 						x -= n
 						sa[i].SetValue(x)
-					} else if v.GetModifier().Exists(mut.SET) {
-						sa[i].SetValue(x)
+					} else if mod.Exists(mut.SET) {
+						sa[i].SetValue(n)
 					} else {
-						panic(fmt.Errorf("Expected member operator of Set, Add, Subtract got %q", opr))
+						panic(fmt.Errorf("Expected member operator of Set, Add, Subtract got %q", mod))
 					}
 				}
 
 			case string:
 
 				if _, ok := value.(string); !ok {
-					panic(fmt.Errorf("AddMember2: Expected string got passed in value of %T", value))
+					panic(fmt.Errorf("AddMember: Expected string got passed in value of %T", value))
 				}
+				// default operation is SET. TODO: what about Concat??
 				sa[i].SetValue(value)
 
 			case bool:
 
 				if _, ok := value.(bool); !ok {
-					panic(fmt.Errorf("AddMember2: Expected bool got passed in value of %T", value))
+					panic(fmt.Errorf("AddMember: Expected bool got passed in value of %T", value))
 				}
+				// default operation is SET
 				sa[i].SetValue(value)
 
 			case [][]byte:
@@ -1019,13 +1048,35 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 				if _, ok := value.([][]byte); !ok {
 					panic(fmt.Errorf("Expected member type [][]byte, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				if v.GetModifier().Exists(mut.SET) {
-					sa[i].SetValue(x)
+				if mod.Exists(mut.SET) {
+					sa[i].SetValue(value)
+
+				} else if mod.Exists(mut.SUBTRACT) || mod.Exists(mut.DELETE) {
+					var ii [][]byte
+					// scan source mutation attribute and subtract element in input value
+					for _, xx := range x {
+						found := false
+						for _, s := range value.([][]byte) {
+							if bytes.Equal(xx, s) {
+								found = true
+							}
+						}
+						if !found {
+							ii = append(ii, xx)
+						}
+					}
+					sa[i].SetValue(ii)
+
 				} else {
 					if s, ok := value.([][]byte); !ok {
-						panic(fmt.Errorf("AddMember2: Expected []string got %T", x))
+						panic(fmt.Errorf("AddMember: Expected []string got %T", x))
 					} else {
-						x = append(x, s...)
+						if mod.Exists(mut.PREPEND) {
+							xx := x
+							x = append(s, xx...)
+						} else {
+							x = append(x, s...)
+						}
 						sa[i].SetValue(x)
 						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
@@ -1038,13 +1089,35 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 						panic(fmt.Errorf("Expected member type []uuid.UID, passed in value of type %T for attribute %s ", value, v.Name()))
 					}
 				}
-				if v.GetModifier().Exists(mut.SET) {
-					sa[i].SetValue(x)
+				if mod.Exists(mut.SET) {
+					sa[i].SetValue(value)
+
+				} else if mod.Exists(mut.SUBTRACT) || mod.Exists(mut.DELETE) {
+					var ii []uuid.UID
+					// scan source mutation attribute and subtract element in input value
+					for _, xx := range x {
+						found := false
+						for _, s := range value.([]uuid.UID) {
+							if bytes.Equal(xx, s) {
+								found = true
+							}
+						}
+						if !found {
+							ii = append(ii, xx)
+						}
+					}
+					sa[i].SetValue(ii)
+
 				} else {
 					if s, ok := value.([]uuid.UID); !ok {
-						panic(fmt.Errorf("AddMember2: Expected []string got %T", x))
+						panic(fmt.Errorf("AddMember: Expected []string got %T", x))
 					} else {
-						x = append(x, s...)
+						if mod.Exists(mut.PREPEND) {
+							xx := x
+							x = append(s, xx...)
+						} else {
+							x = append(x, s...)
+						}
 						sa[i].SetValue(x)
 						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
@@ -1054,15 +1127,36 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 				if _, ok := value.([]string); !ok {
 					panic(fmt.Errorf("Expected member type []string, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				if v.GetModifier().Exists(mut.SET) {
-					sa[i].SetValue(x)
+				if mod.Exists(mut.SET) {
+					sa[i].SetValue(value)
+
+				} else if mod.Exists(mut.SUBTRACT) || mod.Exists(mut.DELETE) {
+					var ii []string
+					// scan source mutation attribute and subtract element in input value
+					for _, xx := range x {
+						found := false
+						for _, s := range value.([]string) {
+							if xx == s {
+								found = true
+							}
+						}
+						if !found {
+							ii = append(ii, xx)
+						}
+					}
+					sa[i].SetValue(ii)
+
 				} else {
 					if s, ok := value.([]string); !ok {
-						panic(fmt.Errorf("AddMember2: Expected []string got %T", x))
+						panic(fmt.Errorf("AddMember: Expected []string got %T", x))
 					} else {
-						x = append(x, s...)
+						if mod.Exists(mut.PREPEND) {
+							xx := x
+							x = append(s, xx...)
+						} else {
+							x = append(x, s...)
+						}
 						sa[i].SetValue(x)
-						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
 				}
 
@@ -1070,15 +1164,76 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 				if _, ok := value.([]int64); !ok {
 					panic(fmt.Errorf("Expected member type []int64, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				if v.GetModifier().Exists(mut.SET) {
-					sa[i].SetValue(x)
+				if mod.Exists(mut.SET) {
+					sa[i].SetValue(value)
+
+				} else if mod.Exists(mut.SUBTRACT) || mod.Exists(mut.DELETE) {
+					var ii []int64
+					// scan source mutation attribute and subtract element in input value
+					for _, xx := range x {
+						found := false
+						for _, s := range value.([]int64) {
+							if xx == s {
+								found = true
+							}
+						}
+						if !found {
+							ii = append(ii, xx)
+						}
+					}
+					sa[i].SetValue(ii)
+
 				} else {
+					//default behavious - add for set, append for LIst
 					if s, ok := value.([]int64); !ok {
-						panic(fmt.Errorf("AddMember2: Expected []int64 got %T", x))
+						panic(fmt.Errorf("AddMember: Expected []int64 got %T", x))
 					} else {
-						x = append(x, s...)
+						if mod.Exists(mut.PREPEND) {
+							xx := x
+							x = append(s, xx...)
+						} else {
+							x = append(x, s...)
+						}
 						sa[i].SetValue(x)
-						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
+					}
+				}
+
+			case []int32:
+				if _, ok := value.([]int32); !ok {
+					panic(fmt.Errorf("Expected member type []int, passed in value of type %T for attribute %s ", value, v.Name()))
+				}
+				if mod.Exists(mut.SET) {
+					sa[i].SetValue(value)
+
+				} else if mod.Exists(mut.SUBTRACT) || mod.Exists(mut.DELETE) {
+					var ii []int32
+					// scan source mutation attribute and subtract element in input value
+					for _, xx := range x {
+						found := false
+						for _, s := range value.([]int32) {
+							if xx == s {
+								found = true
+							}
+						}
+						if !found {
+							ii = append(ii, xx)
+						}
+					}
+					sa[i].SetValue(ii)
+
+				} else {
+					if s, ok := value.([]int32); !ok {
+						panic(fmt.Errorf("AddMember: Expected []int64 got %T", x))
+					} else {
+						if mod.Exists(mut.PREPEND) {
+							xx := x
+							x = append(s, xx...)
+						} else {
+							// default is append
+							x = append(x, s...)
+						}
+						sa[i].SetValue(x)
+						//	fmt.Printf(" =. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
 				}
 
@@ -1086,13 +1241,36 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 				if _, ok := value.([]int); !ok {
 					panic(fmt.Errorf("Expected member type []int, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				if v.GetModifier().Exists(mut.SET) {
-					sa[i].SetValue(x)
-				} else { // Append
+				if mod.Exists(mut.SET) {
+					sa[i].SetValue(value)
+
+				} else if mod.Exists(mut.SUBTRACT) || mod.Exists(mut.DELETE) {
+					var ii []int
+					// scan source mutation attribute and subtract element in input value
+					for _, xx := range x {
+						found := false
+						for _, s := range value.([]int) {
+							if xx == s {
+								found = true
+							}
+						}
+						if !found {
+							ii = append(ii, xx)
+						}
+					}
+					sa[i].SetValue(ii)
+
+				} else {
 					if s, ok := value.([]int); !ok {
-						panic(fmt.Errorf("AddMember2: Expected []int64 got %T", x))
+						panic(fmt.Errorf("AddMember: Expected []int64 got %T", x))
 					} else {
-						x = append(x, s...)
+						// default operation is Append
+						if mod.Exists(mut.PREPEND) {
+							xx := x
+							x = append(s, xx...)
+						} else {
+							x = append(x, s...)
+						}
 						sa[i].SetValue(x)
 						//	fmt.Printf(" =. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
@@ -1102,15 +1280,37 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 				if _, ok := value.([]float64); !ok {
 					panic(fmt.Errorf("Expected member type []float64, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				if v.GetModifier().Exists(mut.SET) {
-					sa[i].SetValue(x)
-				} else { // Append
+				if mod.Exists(mut.SET) {
+					sa[i].SetValue(value)
+
+				} else if mod.Exists(mut.SUBTRACT) || mod.Exists(mut.DELETE) {
+					var ii []float64
+					// scan source mutation attribute and subtract element in input value
+					for _, xx := range x {
+						found := false
+						for _, s := range value.([]float64) {
+							if xx == s {
+								found = true
+							}
+						}
+						if !found {
+							ii = append(ii, xx)
+						}
+					}
+					sa[i].SetValue(ii)
+
+				} else {
+					// default operation is Append
 					if s, ok := value.([]float64); !ok {
-						panic(fmt.Errorf("AddMember2: Expected []float64 got %T", x))
+						panic(fmt.Errorf("AddMember: Expected []float64 got %T", x))
 					} else {
-						x = append(x, s...)
+						if mod.Exists(mut.PREPEND) {
+							xx := x
+							x = append(s, xx...)
+						} else {
+							x = append(x, s...)
+						}
 						sa[i].SetValue(x)
-						//	fmt.Printf("====. merged %s %d\n", sa[i].Name, len(sa[i].SetValue(x).([]int)))
 					}
 				}
 
@@ -1118,11 +1318,11 @@ func (h *TxHandle) AddMember(attr string, value interface{}, mod_ ...mut.Modifie
 				if _, ok := value.([]bool); !ok {
 					panic(fmt.Errorf("Expected member type []bool, passed in value of type %T for attribute %s ", value, v.Name()))
 				}
-				if v.GetModifier().Exists(mut.SET) {
-					sa[i].SetValue(x)
+				if mod.Exists(mut.SET) {
+					sa[i].SetValue(value)
 				} else { // Append
 					if s, ok := value.([]bool); !ok {
-						panic(fmt.Errorf("AddMember2: Expected []int64 got %T", x))
+						panic(fmt.Errorf("AddMember: Expected []int64 got %T", x))
 					} else {
 						x = append(x, s...)
 						sa[i].SetValue(x)

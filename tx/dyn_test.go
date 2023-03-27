@@ -11,6 +11,7 @@ import (
 
 	"github.com/ros2hp/method-db/db"
 	dyn "github.com/ros2hp/method-db/dynamodb"
+	"github.com/ros2hp/method-db/key"
 	"github.com/ros2hp/method-db/mut"
 	"github.com/ros2hp/method-db/tbl"
 	"github.com/ros2hp/method-db/uuid"
@@ -51,6 +52,27 @@ func init() {
 	dyn.Register(ctx, "default", &wpEnd, []db.Option{db.Option{Name: "Region", Val: "us-east-1"}}...)
 
 }
+
+// func TestGetValueSN(t *testing.T) {
+// 	upd := "SET #0 = list_append(#0, :0), #1 = list_append(#1, :1), #2 = #2 + :H "
+// 	sn := "#2"
+// 	//	t.Logf(dyn.GetValueSN(&upd, sn))
+
+// 	i := strings.Index(upd, sn)
+// 	ii := strings.Index(upd[i:], ":")
+// 	s := i + ii
+// 	for k, v := range upd[s:] {
+// 		if v == ')' || v == ',' || v == ' ' {
+// 			t.Logf("return: %q", upd[s:s+k])
+// 			return
+// 		}
+// 		if k == len(upd[s:])-1 {
+// 			t.Logf("return: %q", upd[s:s+k+1])
+// 			return
+// 		}
+// 	}
+// 	t.Logf("End: %q", upd[s:])
+// }
 
 func TestDynSelect(t *testing.T) {
 
@@ -157,6 +179,938 @@ func TestDynSelectSlice(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestDynMergeMutation1(t *testing.T) {
+
+	pkey := 10001
+	sortk := "U#P#v"
+
+	var mutop = mut.Update
+	var keys []key.Key
+	ctx := context.Background()
+	// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+	cTx := NewContext(ctx, "AttachEdges")
+	if errs := cTx.GetErrors(); len(errs) > 0 {
+		t.Errorf("Error in BatchMerge: %s", errs[0])
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 1)
+			xf[0] = 4
+
+			cTx.MergeMutation(gtbl, mutop, keys).AddMember("Nd", cuid).AddMember("XF", xf).AddMember("ASZ", 1, mut.ADD)
+		}
+
+	}
+	//Randomly chooses an overflow block. However before it can choose random it must create a set of overflow blocks
+	//which relies upon an Overflow batch limit being reached and a new batch created.
+
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"PKey", pkey + i}, key.Key{"SortK", sortk}}
+
+		m, err := cTx.GetMergedMutation(gtbl, keys)
+		if err != nil {
+			t.Errorf("Error in MergeMutation: %s", err)
+		}
+
+		for i, v := range m.GetMutateMembers() {
+			t.Logf("Attribute:  %d   %s", i, v.Name())
+		}
+
+		asz := m.GetMemberValue("ASZ").(int)
+		t.Logf("asz: %d", asz)
+		xf_ := m.GetMemberValue("XF").([]int64)
+		if 4 == asz {
+			// update XF in UID-Pred (in parent node block) to overflow batch limit reached.
+			xf_[len(xf_)-1] = 99
+			cTx.MergeMutation(gtbl, mut.Update, keys).AddMember("XF", xf_, mut.SET)
+		}
+
+	}
+
+	keys = []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey}}
+
+	cTx.MergeMutation(gtbl, mutop, keys).AddMember("N", 1, mut.ADD)
+
+	// err = cTx.Execute()
+	err = cTx.Commit()
+	if err != nil {
+		//cTx.Dump() // serialise cTx to mysql dump table
+		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+}
+
+func TestDynMergeMutation2a(t *testing.T) {
+
+	pkey := 20001
+	sortk := "U#P#v"
+
+	var mutop = mut.Insert
+	var keys []key.Key
+	ctx := context.Background()
+	// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+	cTx := NewContext(ctx, "AttachEdges")
+	if errs := cTx.GetErrors(); len(errs) > 0 {
+		t.Errorf("Error in BatchMerge: %s", errs[0])
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 1)
+			xf[0] = int64(k)
+
+			cTx.MergeMutation(gtbl, mutop, keys).AddMember("Nd", cuid, dyn.BinarySet).AddMember("XF", xf).AddMember("ASZ", 1, mut.ADD)
+		}
+
+	}
+	//Randomly chooses an overflow block. However before it can choose random it must create a set of overflow blocks
+	//which relies upon an Overflow batch limit being reached and a new batch created.
+
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"PKey", pkey + i}, key.Key{"SortK", sortk}}
+
+		m, err := cTx.GetMergedMutation(gtbl, keys)
+		if err != nil {
+			t.Errorf("Error in MergeMutation: %s", err)
+		}
+
+		for i, v := range m.GetMutateMembers() {
+			t.Logf("Attribute:  %d   %s", i, v.Name())
+		}
+
+		asz := m.GetMemberValue("ASZ").(int)
+		xf_ := m.GetMemberValue("XF").([]int64)
+		if 4 == asz {
+			// update XF in UID-Pred (in parent node block) to overflow batch limit reached.
+			xf_[len(xf_)-1] = 99
+			cTx.MergeMutation(gtbl, mut.Update, keys).AddMember("XF", xf_, mut.ADD)
+		}
+
+	}
+
+	keys = []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey}}
+
+	cTx.MergeMutation(gtbl, mutop, keys).AddMember("N", 1, mut.ADD)
+
+	// err = cTx.Execute()
+	err = cTx.Commit()
+	if err != nil {
+		//cTx.Dump() // serialise cTx to mysql dump table
+		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+}
+
+func TestDynMergeMutation2b(t *testing.T) {
+
+	pkey := 20001
+	sortk := "U#P#v"
+
+	var mutop = mut.Update
+	var keys []key.Key
+	ctx := context.Background()
+	// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+	cTx := NewContext(ctx, "AttachEdges")
+	if errs := cTx.GetErrors(); len(errs) > 0 {
+		t.Errorf("Error in BatchMerge: %s", errs[0])
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 1)
+			xf[0] = 4
+
+			cTx.MergeMutation(gtbl, mutop, keys).AddMember("Nd", cuid, dyn.BinarySet, mut.ADD).AddMember("XF", xf).AddMember("ASZ", 1, mut.ADD)
+		}
+
+	}
+
+	//Randomly chooses an overflow block. However before it can choose random it must create a set of overflow blocks
+	//which relies upon an Overflow batch limit being reached and a new batch created.
+
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"PKey", pkey + i}, key.Key{"SortK", sortk}}
+
+		m, err := cTx.GetMergedMutation(gtbl, keys)
+		if err != nil {
+			t.Errorf("Error in MergeMutation: %s", err)
+		}
+
+		for i, v := range m.GetMutateMembers() {
+			t.Logf("Attribute:  %d   %s", i, v.Name())
+		}
+
+		// asz := m.GetMemberValue("ASZ").(int)
+		// t.Logf("asz: %d", asz)
+		// xf_ := m.GetMemberValue("XF").([]int64)
+		// if 4 == asz {
+		// 	// update XF in UID-Pred (in parent node block) to overflow batch limit reached.
+		// 	xf_[len(xf_)-1] = 99
+		// 	cTx.MergeMutation(gtbl, mut.Update, keys).AddMember("XF", xf_, mut.SET)
+		// }
+
+	}
+
+	keys = []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey}}
+
+	cTx.MergeMutation(gtbl, mutop, keys).AddMember("N", 1, mut.ADD)
+
+	// err = cTx.Execute()
+	err = cTx.Commit()
+	if err != nil {
+		//cTx.Dump() // serialise cTx to mysql dump table
+		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+}
+
+// MergeMutationListCreated (default for methodb)
+func TestDynMergeMutationList(t *testing.T) {
+
+	pkey := 30001
+	sortk := "U#P#v"
+
+	utx := NewBatch("DynMergeMutation3a")
+	for i := 0; i < 10; i++ {
+		utx.NewDelete(gtbl).Key("PKey", pkey+i).Key("SortK", sortk)
+	}
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of MergeMutation3a %s", err)
+	}
+	var mutop = mut.Insert
+
+	ctx := context.Background()
+	// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+	cTx := NewContext(ctx, "AttachEdges")
+	if errs := cTx.GetErrors(); len(errs) > 0 {
+		t.Errorf("Error in BatchMerge: %s", errs[0])
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 3)
+			for i := 0; i < 3; i++ {
+				xf[i] = int64(i)
+			}
+
+			cTx.MergeMutation(gtbl, mutop, keys).Attribute("Nd", cuid).Attribute("XF", xf).Attribute("ASZ", 1, mut.ADD)
+		}
+
+	}
+
+	// err = cTx.Execute()
+	err = cTx.Commit()
+	if err != nil {
+		//cTx.Dump() // serialise cTx to mysql dump table
+		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+	type qr struct {
+		PKey  int
+		SortK string
+		ASZ   int
+		N     int
+		Nd    [][]byte
+		XF    []int64
+	}
+	var qrv qr
+
+	qt := NewQuery("label", gtbl)
+	qt.Select(&qrv).Key("PKey", pkey).Key("SortK", sortk)
+	err = qt.Execute()
+	if err != nil {
+		t.Errorf("Error inTestDynMergeMutation3a Query : %s ", err)
+	}
+	if qrv.ASZ != 4 {
+		t.Errorf("Expected ASX of 4 got %d", qrv.ASZ)
+	}
+	if len(qrv.Nd) != 4 {
+		t.Errorf("Expected Nd of 4 got %d", len(qrv.Nd))
+	}
+	if len(qrv.XF) != 12 {
+		t.Errorf("Expected XF of 12 got %d. Must not be a List", len(qrv.XF))
+	}
+	if qrv.XF[0] != 0 {
+		t.Errorf("Expected XF[0] of 0 got %d", qrv.XF[0])
+	}
+	if qrv.XF[1] != 1 {
+		t.Errorf("Expected XF[1] of 1 got %d", qrv.XF[0])
+	}
+	if qrv.XF[2] != 2 {
+		t.Errorf("Expected XF[2] of 2 got %d", qrv.XF[0])
+	}
+	if qrv.XF[3] != 0 {
+		t.Errorf("Expected XF[3] of 0 got %d", qrv.XF[0])
+	}
+	if qrv.XF[4] != 1 {
+		t.Errorf("Expected XF[4] of 1 got %d", qrv.XF[0])
+	}
+	if qrv.XF[11] != 2 {
+		t.Errorf("Expected XF[11] of 2 got %d", qrv.XF[0])
+	}
+	t.Logf("XF: %#v", qrv.XF)
+
+}
+
+// MergeMutationNumberSetCreated (dynamodb dedups number sets)
+func SetupMergeMutationAllList(t *testing.T, pkey int) {
+
+	sortk := "U#P#v"
+
+	utx := NewBatch("DynMergeMutation3a")
+	for i := 0; i < 10; i++ {
+		utx.NewDelete(gtbl).Key("PKey", pkey+i).Key("SortK", sortk)
+	}
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of MergeMutation3a %s", err)
+	}
+	var mutop = mut.Insert
+
+	ctx := context.Background()
+	// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+	cTx := NewContext(ctx, "AttachEdges")
+	if errs := cTx.GetErrors(); len(errs) > 0 {
+		t.Errorf("Error in BatchMerge: %s", errs[0])
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 3)
+			for i := 0; i < 3; i++ {
+				xf[i] = int64(k)
+			}
+
+			cTx.MergeMutation(gtbl, mutop, keys).Attribute("Nd", cuid).Attribute("XF", xf).Attribute("ASZ", 1, mut.ADD)
+		}
+
+	}
+
+	// err = cTx.Execute()
+	err = cTx.Commit()
+	if err != nil {
+		//cTx.Dump() // serialise cTx to mysql dump table
+		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+}
+
+// MergeMutationNumberSetCreated (dynamodb dedups number sets)
+func TestDynMergeMutationNumberSet(t *testing.T) {
+
+	pkey := 30001
+	sortk := "U#P#v"
+
+	utx := NewBatch("DynMergeMutation3a")
+	for i := 0; i < 10; i++ {
+		utx.NewDelete(gtbl).Key("PKey", pkey+i).Key("SortK", sortk)
+	}
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of MergeMutation3a %s", err)
+	}
+	var mutop = mut.Insert
+
+	ctx := context.Background()
+	// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+	cTx := NewContext(ctx, "AttachEdges")
+	if errs := cTx.GetErrors(); len(errs) > 0 {
+		t.Errorf("Error in BatchMerge: %s", errs[0])
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 3)
+			for i := 0; i < 3; i++ {
+				xf[i] = int64(k)
+			}
+
+			cTx.MergeMutation(gtbl, mutop, keys).Attribute("Nd", cuid).Attribute("XF", xf, dyn.NumberSet).Attribute("ASZ", 1, mut.ADD)
+		}
+
+	}
+
+	// err = cTx.Execute()
+	err = cTx.Commit()
+	if err != nil {
+		//cTx.Dump() // serialise cTx to mysql dump table
+		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+	type qr struct {
+		PKey  int
+		SortK string
+		ASZ   int
+		N     int
+		Nd    [][]byte
+		XF    []int64
+	}
+	var qrv qr
+
+	qt := NewQuery("label", gtbl)
+	qt.Select(&qrv).Key("PKey", pkey).Key("SortK", sortk)
+	err = qt.Execute()
+	if err != nil {
+		t.Errorf("Error inTestDynMergeMutation3a Query : %s ", err)
+	}
+	if qrv.ASZ != 4 {
+		t.Errorf("Expected ASX of 4 got %d", qrv.ASZ)
+	}
+	if len(qrv.Nd) != 4 {
+		t.Errorf("Expected Nd of 4 got %d", len(qrv.Nd))
+	}
+	if len(qrv.XF) != 4 {
+		t.Errorf("Expected XF of 4 got %d. Must not be a NumberSet", len(qrv.XF))
+	}
+	t.Logf("XF: %#v", qrv.XF)
+
+}
+
+// MergeMutationNSADD
+func TestDynMergeMutationNSAdd(t *testing.T) {
+
+	pkey := 30001
+	sortk := "U#P#v"
+
+	utx := NewBatch("DynMergeMutation3a")
+	for i := 0; i < 10; i++ {
+		utx.NewDelete(gtbl).Key("PKey", pkey+i).Key("SortK", sortk)
+	}
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of MergeMutation3a %s", err)
+	}
+	var mutop = mut.Insert
+	var keys []key.Key
+	ctx := context.Background()
+	// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+	cTx := NewContext(ctx, "AttachEdges")
+	if errs := cTx.GetErrors(); len(errs) > 0 {
+		t.Errorf("Error in BatchMerge: %s", errs[0])
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 3)
+			for i := 0; i < 3; i++ {
+				xf[i] = int64(k)
+			}
+
+			cTx.MergeMutation(gtbl, mutop, keys).Attribute("Nd", cuid).Attribute("XF", xf, dyn.NumberSet, mut.ADD).Attribute("ASZ", 1, mut.ADD)
+		}
+
+	}
+	//Randomly chooses an overflow block. However before it can choose random it must create a set of overflow blocks
+	//which relies upon an Overflow batch limit being reached and a new batch created.
+
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"PKey", pkey + i}, key.Key{"SortK", sortk}}
+
+		m, err := cTx.GetMergedMutation(gtbl, keys)
+		if err != nil {
+			t.Errorf("Error in MergeMutation: %s", err)
+		}
+
+		for i, v := range m.GetMutateMembers() {
+			t.Logf("Attribute:  %d   %s", i, v.Name())
+		}
+
+		asz := m.GetMemberValue("ASZ").(int)
+		_ = m.GetMemberValue("XF").([]int64)
+		if 4 == asz {
+			// update XF in UID-Pred (in parent node block) to overflow batch limit reached.
+			xf := make([]int64, 1)
+			xf[0] = 99
+			cTx.MergeMutation(gtbl, mut.Update, keys).Attribute("XF", xf, mut.ADD)
+		}
+
+	}
+
+	keys = []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey}}
+
+	cTx.MergeMutation(gtbl, mutop, keys).Attribute("N", 1, mut.ADD)
+
+	// err = cTx.Execute()
+	err = cTx.Commit()
+	if err != nil {
+		//cTx.Dump() // serialise cTx to mysql dump table
+		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+	type qr struct {
+		PKey  int
+		SortK string
+		ASZ   int
+		N     int
+		Nd    [][]byte
+		XF    []int64
+	}
+	var qrv qr
+
+	qt := NewQuery("label", gtbl)
+	qt.Select(&qrv).Key("PKey", pkey).Key("SortK", sortk)
+	err = qt.Execute()
+	if err != nil {
+		t.Errorf("Error inTestDynMergeMutation3a Query : %s ", err)
+	}
+	if qrv.ASZ != 4 {
+		t.Errorf("Expected ASX of 4 got %d", qrv.ASZ)
+	}
+	if qrv.N != 1 {
+		t.Errorf("Expected N of 1 got %d", qrv.N)
+	}
+	if len(qrv.Nd) != 4 {
+		t.Errorf("Expected Nd of 4 got %d", len(qrv.Nd))
+	}
+	if len(qrv.XF) != 5 {
+		t.Errorf("Expected XF of 5 got %d", len(qrv.XF))
+	}
+	expected := []int64{0, 1, 2, 3, 99}
+	for _, v := range qrv.XF {
+		var found bool
+		for _, vv := range expected {
+			if v == vv {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected XF to be one of %#v", expected)
+		}
+
+	}
+	t.Logf("XF: %#v", qrv.XF)
+
+}
+
+// MergeMutationNSDefaultOper
+func TestDynMergeMutationNSDefaultOper(t *testing.T) {
+
+	pkey := 30001
+	sortk := "U#P#v"
+
+	utx := NewBatch("DynMergeMutation3a")
+	for i := 0; i < 10; i++ {
+		utx.NewDelete(gtbl).Key("PKey", pkey+i).Key("SortK", sortk)
+	}
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of MergeMutation3a %s", err)
+	}
+	var mutop = mut.Insert
+	var keys []key.Key
+	ctx := context.Background()
+	// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+	cTx := NewContext(ctx, "AttachEdges")
+	if errs := cTx.GetErrors(); len(errs) > 0 {
+		t.Errorf("Error in BatchMerge: %s", errs[0])
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 3)
+			for i := 0; i < 3; i++ {
+				xf[i] = int64(k)
+			}
+
+			cTx.MergeMutation(gtbl, mutop, keys).Attribute("Nd", cuid).Attribute("XF", xf, dyn.NumberSet).Attribute("ASZ", 1, mut.ADD)
+		}
+
+	}
+	//Randomly chooses an overflow block. However before it can choose random it must create a set of overflow blocks
+	//which relies upon an Overflow batch limit being reached and a new batch created.
+
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"PKey", pkey + i}, key.Key{"SortK", sortk}}
+
+		m, err := cTx.GetMergedMutation(gtbl, keys)
+		if err != nil {
+			t.Errorf("Error in MergeMutation: %s", err)
+		}
+
+		for i, v := range m.GetMutateMembers() {
+			t.Logf("Attribute:  %d   %s", i, v.Name())
+		}
+
+		asz := m.GetMemberValue("ASZ").(int)
+		_ = m.GetMemberValue("XF").([]int64)
+		if 4 == asz {
+			// update XF in UID-Pred (in parent node block) to overflow batch limit reached.
+			xf := make([]int64, 1)
+			xf[0] = 99
+			cTx.MergeMutation(gtbl, mut.Update, keys).Attribute("XF", xf) // default : mut.ADD
+		}
+
+	}
+
+	keys = []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey}}
+
+	cTx.MergeMutation(gtbl, mutop, keys).Attribute("N", 1, mut.ADD)
+
+	// err = cTx.Execute()
+	err = cTx.Commit()
+	if err != nil {
+		//cTx.Dump() // serialise cTx to mysql dump table
+		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+	type qr struct {
+		PKey  int
+		SortK string
+		ASZ   int
+		N     int
+		Nd    [][]byte
+		XF    []int64
+	}
+	var qrv qr
+
+	qt := NewQuery("label", gtbl)
+	qt.Select(&qrv).Key("PKey", pkey).Key("SortK", sortk)
+	err = qt.Execute()
+	if err != nil {
+		t.Errorf("Error inTestDynMergeMutation3a Query : %s ", err)
+	}
+	if qrv.ASZ != 4 {
+		t.Errorf("Expected ASX of 4 got %d", qrv.ASZ)
+	}
+	if qrv.N != 1 {
+		t.Errorf("Expected N of 1 got %d", qrv.N)
+	}
+	if len(qrv.Nd) != 4 {
+		t.Errorf("Expected Nd of 4 got %d", len(qrv.Nd))
+	}
+	if len(qrv.XF) != 5 {
+		t.Errorf("Expected XF of 5 got %d", len(qrv.XF))
+	}
+	expected := []int64{0, 1, 2, 3, 99}
+	for _, v := range qrv.XF {
+		var found bool
+		for _, vv := range expected {
+			if v == vv {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected XF to be one of %#v", expected)
+		}
+
+	}
+	t.Logf("XF: %#v", qrv.XF)
+
+}
+
+// MergeMutationNSSet
+func TestDynMergeMutationSubtract(t *testing.T) {
+
+	pkey := 30001
+	sortk := "U#P#v"
+
+	utx := NewBatch("DynMergeMutation3a")
+	for i := 0; i < 10; i++ {
+		utx.NewDelete(gtbl).Key("PKey", pkey+i).Key("SortK", sortk)
+	}
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of MergeMutation3a %s", err)
+	}
+	var mutop = mut.Insert
+	var keys []key.Key
+	ctx := context.Background()
+	// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+	cTx := NewContext(ctx, "AttachEdges")
+	if errs := cTx.GetErrors(); len(errs) > 0 {
+		t.Errorf("Error in BatchMerge: %s", errs[0])
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 3)
+			for i := 0; i < 3; i++ {
+				xf[i] = int64(k)
+			}
+
+			cTx.MergeMutation(gtbl, mutop, keys).Attribute("Nd", cuid).Attribute("XF", xf, dyn.NumberSet).Attribute("ASZ", 1, mut.ADD)
+		}
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+		for k := 0; k < 2; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 6)
+			for i := 0; i < 3; i++ {
+				xf[i] = int64(k)
+				xf[i+3] = int64(k + 100)
+			}
+
+			cTx.MergeMutation(gtbl, mutop, keys).Attribute("Nd", cuid).Attribute("XF", xf, mut.SUBTRACT).Attribute("ASZ", 1, mut.SUBTRACT)
+		}
+	}
+
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"PKey", pkey + i}, key.Key{"SortK", sortk}}
+
+		m, err := cTx.GetMergedMutation(gtbl, keys)
+		if err != nil {
+			t.Errorf("Error in MergeMutation: %s", err)
+		}
+
+		asz := m.GetMemberValue("ASZ").(int)
+		_ = m.GetMemberValue("XF").([]int64)
+		if 2 == asz {
+			// update XF in UID-Pred (in parent node block) to overflow batch limit reached.
+			xf := make([]int64, 1)
+			xf[0] = 99
+			cTx.MergeMutation(gtbl, mut.Update, keys).Attribute("XF", xf) // mut.ADD by default
+		}
+	}
+
+	keys = []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey}}
+
+	cTx.MergeMutation(gtbl, mutop, keys).Attribute("N", 1, mut.ADD)
+
+	// err = cTx.Execute()
+	err = cTx.Commit()
+	if err != nil {
+		//cTx.Dump() // serialise cTx to mysql dump table
+		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+	type qr struct {
+		PKey  int
+		SortK string
+		ASZ   int
+		N     int
+		Nd    [][]byte
+		XF    []int64
+	}
+	var qrv qr
+
+	qt := NewQuery("label", gtbl)
+	qt.Select(&qrv).Key("PKey", pkey).Key("SortK", sortk)
+	err = qt.Execute()
+	if err != nil {
+		t.Errorf("Error inTestDynMergeMutation3a Query : %s ", err)
+	}
+	if qrv.ASZ != 2 {
+		t.Errorf("Expected ASX of 2 got %d", qrv.ASZ)
+	}
+	if qrv.N != 1 {
+		t.Errorf("Expected N of 1 got %d", qrv.N)
+	}
+	if len(qrv.Nd) != 6 {
+		t.Errorf("Expected Nd of 6 got %d", len(qrv.Nd))
+	}
+	if len(qrv.XF) != 3 {
+		t.Errorf("Expected XF of 3 got %d", len(qrv.XF)) // {"2", "3", "99"}
+	}
+	expected := []int64{2, 3, 99}
+	for _, v := range qrv.XF {
+		var found bool
+		for _, vv := range expected {
+			if v == vv {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected XF to be one of %#v", expected)
+		}
+
+	}
+	t.Logf("XF: %#v", qrv.XF)
+
+}
+
+// first instantiation of an Attribute modifier determines database (dynamodb) Operation as it executes mut.AddMember()
+// subsequent Attribute modifiers applies to local in memory List/Set.
+func TestDynMergeMutationUpdatePrepend(t *testing.T) {
+
+	pkey := 30100
+	sortk := "U#P#v"
+
+	SetupMergeMutationAllList(t, pkey)
+
+	var mutop = mut.Update
+	var keys []key.Key
+	ctx := context.Background()
+	// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+	cTx := NewContext(ctx, "AttachEdges")
+	if errs := cTx.GetErrors(); len(errs) > 0 {
+		t.Errorf("Error in BatchMerge: %s", errs[0])
+	}
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 3)
+			for i := 0; i < 3; i++ {
+				xf[i] = int64(k)
+			}
+			// first instantiation of an Attribute modifier determines dynamodb Operation as it executes mut.AddMember()
+			// subsequent Attribute modifiers applies to local in memory List/Set.
+			cTx.MergeMutation(gtbl, mutop, keys).Attribute("Nd", cuid).Attribute("XF", xf, mut.PREPEND).Attribute("ASZ", 1, mut.ADD)
+		}
+	}
+
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey + i}}
+
+		for k := 0; k < 4; k++ {
+
+			cuid := make([][]byte, 1)
+			cuid[0], _ = uuid.MakeUID()
+			xf := make([]int64, 3)
+			for i := 0; i < 3; i++ {
+				xf[i] = int64(k + 100)
+			}
+
+			cTx.MergeMutation(gtbl, mutop, keys).Attribute("Nd", cuid).Attribute("XF", xf).Attribute("ASZ", 1, mut.ADD)
+		}
+
+	}
+
+	//Randomly chooses an overflow block. However before it can choose random it must create a set of overflow blocks
+	//which relies upon an Overflow batch limit being reached and a new batch created.
+
+	for i := 0; i < 10; i++ {
+
+		keys := []key.Key{key.Key{"PKey", pkey + i}, key.Key{"SortK", sortk}}
+
+		m, err := cTx.GetMergedMutation(gtbl, keys)
+		if err != nil {
+			t.Errorf("Error in MergeMutation: %s", err)
+		}
+
+		for i, v := range m.GetMutateMembers() {
+			t.Logf("Attribute:  %d   %s", i, v.Name())
+		}
+
+		asz := m.GetMemberValue("ASZ").(int)
+		_ = m.GetMemberValue("XF").([]int64)
+		if 4 == asz {
+			// update XF in UID-Pred (in parent node block) to overflow batch limit reached.
+			xf := []int64{0, 2}
+			cTx.MergeMutation(gtbl, mut.Update, keys).Attribute("XF", xf, mut.SUBTRACT)
+		}
+
+	}
+
+	keys = []key.Key{key.Key{"SortK", sortk}, key.Key{"PKey", pkey}}
+
+	cTx.MergeMutation(gtbl, mutop, keys).Attribute("N", 1, mut.ADD)
+
+	// err = cTx.Execute()
+	err = cTx.Commit()
+	if err != nil {
+		//cTx.Dump() // serialise cTx to mysql dump table
+		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+	type qr struct {
+		PKey  int
+		SortK string
+		ASZ   int
+		N     int
+		Nd    [][]byte
+		XF    []int64
+	}
+	var qrv qr
+
+	qt := NewQuery("label", gtbl)
+	qt.Select(&qrv).Key("PKey", pkey).Key("SortK", sortk)
+	err = qt.Execute()
+	if err != nil {
+		t.Errorf("Error inTestDynMergeMutation3a Query : %s ", err)
+	}
+	if qrv.ASZ != 12 {
+		t.Errorf("Expected ASX of 2 got %d", qrv.ASZ)
+	}
+	if qrv.N != 1 {
+		t.Errorf("Expected N of 1 got %d", qrv.N)
+	}
+	if len(qrv.Nd) != 12 {
+		t.Errorf("Expected Nd of 12 got %d", len(qrv.Nd))
+	}
+	if len(qrv.XF) != 36 {
+		t.Errorf("Expected XF of 36 got %d", len(qrv.XF)) // {"2", "3", "99"}
+	}
+	if qrv.XF[0] != 3 {
+		t.Errorf("Expected XF[0] of 3 got %d", qrv.XF[0]) // {"2", "3", "99"}
+	}
+	if qrv.XF[12] != 100 {
+		t.Errorf("Expected XF[12] of 100 got %d", qrv.XF[12]) // {"2", "3", "99"}
+	}
+	if qrv.XF[16] != 101 {
+		t.Errorf("Expected XF[16] of 101 got %d", qrv.XF[16]) // {"2", "3", "99"}
+	}
+	if qrv.XF[23] != 103 {
+		t.Errorf("Expected XF[23] of 103 got %d", qrv.XF[23]) // {"2", "3", "99"}
+	}
+	if qrv.XF[24] != 0 {
+		t.Errorf("Expected XF[24] of 0 got %d", qrv.XF[24]) // {"2", "3", "99"}
+	}
+
+	t.Logf("XF: %#v", qrv.XF)
+
 }
 
 func TestDynSelectSlicePtr(t *testing.T) {
@@ -334,32 +1288,32 @@ func TestDynQueryStructTag(t *testing.T) {
 
 }
 
-// TestDynQueryStructTagmdb test using mdb tags in query struct.  THINK ABOUT IT....
-func TestDynQueryStructTagmdb(t *testing.T) {
+// TestDynQueryStructTagmdb test using mdb tags in query struct. Not yet implemented. THINK ABOUT IT....
+// func TestDynQueryStructTagmdb(t *testing.T) {
 
-	type City struct {
-		PKey  int    `mdb:"-,Key"`
-		SortK string `mdb:"-,Key"`
-		Pop   int    `dynamodbav:"Population" ` // mdb tag not supported. Need an UnmarshalMap() to work with mdb. Currently using DYnamodb's UnmarshalMap()
-	}
+// 	type City struct {
+// 		PKey  int    `mdb:"-,KEY"`
+// 		SortK string `mdb:"-,KEY"`
+// 		Pop   int    `dynamodbav:"Population" ` // mdb tag not supported. Need an UnmarshalMap() to work with mdb. Currently using DYnamodb's UnmarshalMap()
+// 	}
 
-	sk := City{PKey: 1001, SortK: "Sydney"}
+// 	sk := City{PKey: 1001, SortK: "Melbourne"}
 
-	txg := NewQuery("pop", gtbl)
-	txg.Select(&sk)
-	err := txg.Execute()
+// 	txg := NewQuery("pop", gtbl)
+// 	txg.Select(&sk) //.Key("PKey", 1001).Key("SortK", "Melbourne")
+// 	err := txg.Execute()
 
-	if err != nil {
-		t.Errorf("TestQueryPop2: Error: %s", err)
-	}
+// 	if err != nil {
+// 		t.Errorf("TestQueryPop2: Error: %s", err)
+// 	}
 
-	t.Logf("sk %#v", sk)
-	if !(sk.Pop > 0) {
-		t.Errorf("TestQueryPop2: Expected > 0 got: %d", sk.Pop)
-	}
-	t.Logf("TestQueryPop2: Pop: %d", sk.Pop)
+// 	t.Logf("sk %#v", sk)
+// 	if !(sk.Pop > 0) {
+// 		t.Errorf("TestQueryPop2: Expected > 0 got: %d", sk.Pop)
+// 	}
+// 	t.Logf("TestQueryPop2: Pop: %d", sk.Pop)
 
-}
+// }
 
 func TestDynQueryKey(t *testing.T) {
 

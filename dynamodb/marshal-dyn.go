@@ -21,20 +21,20 @@ import (
 func validate(m *mut.Mutation) error {
 	for _, m := range m.GetMembers() {
 		for _, v := range *m.GetModifier() {
-			if v == BinarySet {
-				if m.GetModifier().Exists(StringSet) {
-					return fmt.Errorf("Cannot specify modifiers BinarySet and StringSet together")
+			if v == mut.BinarySet {
+				if m.GetModifier().Exists(mut.StringSet) {
+					return fmt.Errorf("Cannot specify modifiers mut.BinarySet and mut.StringSet together")
 				}
-				if m.GetModifier().Exists(NumberSet) {
-					return fmt.Errorf("Cannot specify modifiers BinarySet and NumberSet together")
+				if m.GetModifier().Exists(mut.NumberSet) {
+					return fmt.Errorf("Cannot specify modifiers mut.BinarySet and mut.NumberSet together")
 				}
 			}
-			if v == NumberSet {
-				if m.GetModifier().Exists(StringSet) {
-					return fmt.Errorf("Cannot specify modifiers BinarySet and StringSet together")
+			if v == mut.NumberSet {
+				if m.GetModifier().Exists(mut.StringSet) {
+					return fmt.Errorf("Cannot specify modifiers mut.BinarySet and mut.StringSet together")
 				}
-				if m.GetModifier().Exists(BinarySet) {
-					return fmt.Errorf("Cannot specify modifiers BinarySet and NumberSet together")
+				if m.GetModifier().Exists(mut.BinarySet) {
+					return fmt.Errorf("Cannot specify modifiers mut.BinarySet and mut.NumberSet together")
 				}
 			}
 			if v == Nullempty {
@@ -97,7 +97,7 @@ func marshalAV_(m *mut.Mutation, ms []*mut.Member) (map[string]types.AttributeVa
 			continue
 		}
 
-		av := marshalAvUsingValue(m, col.Value(), *col.GetModifier()...)
+		av := marshalAvUsingValue(m, col.Name(), col.Value(), *col.GetModifier()...)
 		if av != nil {
 			item[col.Name()] = av
 		}
@@ -106,7 +106,7 @@ func marshalAV_(m *mut.Mutation, ms []*mut.Member) (map[string]types.AttributeVa
 	return item, err
 }
 
-func marshalAvUsingValue(m *mut.Mutation, val interface{}, mod ...mut.Modifier) types.AttributeValue {
+func marshalAvUsingValue(m *mut.Mutation, nm string, val interface{}, mod ...mut.Modifier) types.AttributeValue {
 
 	mm := mut.ModifierS(mod)
 
@@ -213,7 +213,7 @@ func marshalAvUsingValue(m *mut.Mutation, val interface{}, mod ...mut.Modifier) 
 		if len(x) == 0 && mm.Exists(Nullempty) {
 			return &types.AttributeValueMemberNULL{Value: true}
 		}
-		if mm.Exists(BinarySet) {
+		if mm.Exists(mut.BinarySet) {
 			lb := make([][]byte, len(x), len(x))
 			for i, v := range x {
 				lb[i] = v
@@ -238,7 +238,7 @@ func marshalAvUsingValue(m *mut.Mutation, val interface{}, mod ...mut.Modifier) 
 		if reflect.ValueOf(val).IsZero() {
 			return &types.AttributeValueMemberNULL{Value: true}
 		}
-		if mm.Exists(BinarySet) {
+		if mm.Exists(mut.BinarySet) {
 			lb := make([][]byte, len(x), len(x))
 			for i, v := range x {
 				if reflect.ValueOf(v).IsZero() && mm.Exists(Omitemptyelem) {
@@ -280,8 +280,8 @@ func marshalAvUsingValue(m *mut.Mutation, val interface{}, mod ...mut.Modifier) 
 		}
 
 		// represented as List of string
-		if mm.Exists(StringSet) {
-			return &types.AttributeValueMemberSS{Value: ss}
+		if mm.Exists(mut.StringSet) {
+			return &types.AttributeValueMemberSS{Value: dedup(ss)}
 		}
 		lb := make([]types.AttributeValue, len(x), len(x))
 		for i, s := range ss {
@@ -297,12 +297,14 @@ func marshalAvUsingValue(m *mut.Mutation, val interface{}, mod ...mut.Modifier) 
 			return &types.AttributeValueMemberNULL{Value: true}
 		}
 		// represented as List of int64
-		if mm.Exists(NumberSet) {
+		if mm.Exists(mut.NumberSet) {
 			lb := make([]string, len(x), len(x))
 			for i, v := range x {
-				lb[i] = strconv.FormatInt(v, 10)
+				vv := int64(v)
+				s := strconv.FormatInt(vv, 10)
+				lb[i] = s
 			}
-			return &types.AttributeValueMemberNS{Value: lb}
+			return &types.AttributeValueMemberNS{Value: dedup(lb)}
 		}
 		lb := make([]types.AttributeValue, len(x), len(x))
 		for i, v := range x {
@@ -319,13 +321,14 @@ func marshalAvUsingValue(m *mut.Mutation, val interface{}, mod ...mut.Modifier) 
 			return &types.AttributeValueMemberNULL{Value: true}
 		}
 		// represented as List of int64
-		if mm.Exists(NumberSet) {
+		if mm.Exists(mut.NumberSet) {
 			lb := make([]string, len(x), len(x))
 			for i, v := range x {
 				vv := int64(v)
-				lb[i] = strconv.FormatInt(vv, 10)
+				s := strconv.FormatInt(vv, 10)
+				lb[i] = s
 			}
-			return &types.AttributeValueMemberNS{Value: lb}
+			return &types.AttributeValueMemberNS{Value: dedup(lb)}
 		}
 		lb := make([]types.AttributeValue, len(x), len(x))
 		for i, v := range x {
@@ -343,14 +346,14 @@ func marshalAvUsingValue(m *mut.Mutation, val interface{}, mod ...mut.Modifier) 
 			return &types.AttributeValueMemberNULL{Value: true}
 		}
 		// represented as List of int64
-		if mm.Exists(NumberSet) {
+		if mm.Exists(mut.NumberSet) {
 			lb := make([]string, len(x), len(x))
 			for i, v := range x {
 				vv := int64(v)
 				s := strconv.FormatInt(vv, 10)
 				lb[i] = s
 			}
-			return &types.AttributeValueMemberNS{Value: lb}
+			return &types.AttributeValueMemberNS{Value: dedup(lb)}
 		}
 		lb := make([]types.AttributeValue, len(x), len(x))
 		for i, v := range x {
@@ -380,12 +383,12 @@ func marshalAvUsingValue(m *mut.Mutation, val interface{}, mod ...mut.Modifier) 
 		if len(x) == 0 && mm.Exists(Nullempty) {
 			return &types.AttributeValueMemberNULL{Value: true}
 		}
-		if mm.Exists(NumberSet) {
+		if mm.Exists(mut.NumberSet) {
 			lb := make([]string, len(x), len(x))
 			for i, v := range x {
 				lb[i] = strconv.FormatFloat(v, 'g', -1, 64)
 			}
-			return &types.AttributeValueMemberNS{Value: lb}
+			return &types.AttributeValueMemberNS{Value: dedup(lb)}
 		}
 		lb := make([]types.AttributeValue, len(x), len(x))
 		for i, v := range x {
@@ -443,12 +446,27 @@ func marshalAvUsingValue(m *mut.Mutation, val interface{}, mod ...mut.Modifier) 
 			if err != nil {
 				panic(err)
 			}
-			fmt.Printf("av %#v\n", av)
+
 			return &types.AttributeValueMemberM{Value: av}
 
 		}
-		panic(fmt.Errorf("val type %T not supported", val))
 
 	}
 	return nil
+}
+
+func dedup(s []string) (ss []string) {
+	var found bool
+	for _, v := range s {
+		found = false
+		for _, vv := range ss {
+			if vv == v {
+				found = true
+			}
+		}
+		if !found {
+			ss = append(ss, v)
+		}
+	}
+	return ss
 }

@@ -34,6 +34,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+type Modifier = string
+
+const (
+	NumberSet     Modifier = "_NUMBERSET"
+	StringSet     Modifier = "_STRINGSET"
+	BinarySet     Modifier = "_BINARYSET" // default for [][]byte but overriden by txUpdate() txPut()
+	Omitempty     Modifier = "_omitempty"
+	Omitemptyelem Modifier = "_omitemptyelem"
+	Nullempty     Modifier = "_nullempty"
+	Nullemptyelem Modifier = "_nullemptyelem"
+	String        Modifier = "_string"
+)
+
 type action byte
 
 const (
@@ -236,16 +249,96 @@ func retryOp(err error, tag string, cf ...aws.Config) bool {
 // Dynamodb's expression pkg creates BS rather than L for binary array data.
 // As GoGraph had no user-defined types it is possible to hardwire in the affected attributes.
 // All types in GoGraph are known at compile time.
-func convertBS2List(values map[string]types.AttributeValue, names map[string]string) map[string]types.AttributeValue {
+// func convertBS2List(values map[string]types.AttributeValue) map[string]types.AttributeValue {
 
-	for k, _ := range names { // map[string]string  [":0"]"PKey", [":2"]"SortK"
+// 	for k, _ := range values {
+// 		if bs, ok := values[k].(*types.AttributeValueMemberBS); ok {
+// 			nl := make([]types.AttributeValue, len(bs.Value), len(bs.Value))
+// 			for i, b := range bs.Value {
+// 				nl[i] = &types.AttributeValueMemberB{Value: b}
+// 			}
+// 			values[k] = &types.AttributeValueMemberL{Value: nl}
+// 		}
+// 	}
+// 	return values
+// }
 
+func convertBS2List(attr string, upd *string, names map[string]string, values map[string]types.AttributeValue) map[string]types.AttributeValue {
+
+	for n, sn := range names {
+		// exprNames1; map[string]string{"#0":"Nd", "#1":"XF", "#2":"ASZ"}
+		if attr != sn {
+			continue
+		}
+		k := getValueSN(upd, n)
+		// exprValues1; map[string]types.AttributeValue{":0":(*types.AttributeValueMemberL)(0xc000344880), ":1":(*types.AttributeValueMemberL)(0xc000344760), ":2":(*types.AttributeValueMemberN)(0xc00033a858)}
 		if bs, ok := values[k].(*types.AttributeValueMemberBS); ok {
 			nl := make([]types.AttributeValue, len(bs.Value), len(bs.Value))
 			for i, b := range bs.Value {
 				nl[i] = &types.AttributeValueMemberB{Value: b}
 			}
 			values[k] = &types.AttributeValueMemberL{Value: nl}
+		}
+	}
+	return values
+}
+
+// getValueSN, get expression Short Name for value long name
+func getValueSN(upd_ *string, sn string) string {
+	// exprUpdate1; "SET #0 = list_append(#0, :0), #1 = list_append(#1, :1a ), #2 = #2 + :2"
+	upd := *upd_
+
+	i := strings.Index(upd, sn)
+	ii := strings.Index(upd[i:], ":")
+	s := i + ii
+	for k, v := range upd[s:] {
+		if v == ')' || v == ',' || v == ' ' || v == '\n' {
+			return upd[s : s+k]
+		}
+		if k == len(upd[s:])-1 {
+			return upd[s : s+k+1]
+		}
+	}
+
+	return ""
+}
+
+func convertList2NS(attr string, upd *string, names map[string]string, values map[string]types.AttributeValue) map[string]types.AttributeValue {
+	for n, sn := range names {
+		// exprNames1; map[string]string{"#0":"Nd", "#1":"XF", "#2":"ASZ"}
+		if attr != sn {
+			continue
+		}
+		k := getValueSN(upd, n)
+		// exprValues1; map[string]types.AttributeValue{":0":(*types.AttributeValueMemberL)(0xc000344880), ":1":(*types.AttributeValueMemberL)(0xc000344760), ":2":(*types.AttributeValueMemberN)(0xc00033a858)}
+		if bs, ok := values[k].(*types.AttributeValueMemberL); ok {
+			nl := make([]string, len(bs.Value), len(bs.Value))
+			for i, b := range bs.Value {
+				s := b.(*types.AttributeValueMemberN)
+				nl[i] = s.Value
+			}
+
+			values[k] = &types.AttributeValueMemberNS{Value: nl}
+		}
+	}
+	return values
+}
+
+func convertList2SS(attr string, upd *string, names map[string]string, values map[string]types.AttributeValue) map[string]types.AttributeValue {
+	for n, sn := range names {
+		// exprNames1; map[string]string{"#0":"Nd", "#1":"XF", "#2":"ASZ"}
+		if attr != sn {
+			continue
+		}
+		k := getValueSN(upd, n)
+		// exprValues1; map[string]types.AttributeValue{":0":(*types.AttributeValueMemberL)(0xc000344880), ":1":(*types.AttributeValueMemberL)(0xc000344760), ":2":(*types.AttributeValueMemberN)(0xc00033a858)}
+		if bs, ok := values[k].(*types.AttributeValueMemberL); ok {
+			nl := make([]string, len(bs.Value), len(bs.Value))
+			for i, b := range bs.Value {
+				s := b.(*types.AttributeValueMemberS)
+				nl[i] = s.Value
+			}
+			values[k] = &types.AttributeValueMemberSS{Value: nl}
 		}
 	}
 	return values
@@ -357,80 +450,110 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 			continue
 		}
 
-		switch col.GetOperation() {
-		// TODO: implement Add (as opposed to inc which is "Add 1")
-		case mut.ADD:
-			if i == 0 {
-				upd = expression.Set(expression.Name(col.Name()), expression.Name(col.Name()).Plus(expression.Value(col.Value())))
-			} else {
-				upd = upd.Set(expression.Name(col.Name()), expression.Name(col.Name()).Plus(expression.Value(col.Value())))
-			}
-		case mut.SUBTRACT:
-			if i == 0 {
-				upd = expression.Set(expression.Name(col.Name()), expression.Name(col.Name()).Minus(expression.Value(col.Value())))
-			} else {
-				upd = upd.Set(expression.Name(col.Name()), expression.Name(col.Name()).Minus(expression.Value(col.Value())))
-			}
-		// case mut.MULTIPLY: // MULTIPLY is not supported
-		// 	if i == 0 {
-		// 		upd = expression.Set(expression.Name(col.Name()), expression.Name(col.Name()).Multiply(expression.Value(col.Value())))
-		// 	} else {
-		// 		upd = upd.Set(expression.Name(col.Name()), expression.Name(col.Name()).Multiply(expression.Value(col.Value())))
-		// 	}
-		case mut.REMOVE:
-			if i == 0 {
-				upd = expression.Remove(expression.Name(col.Name()))
-			} else {
-				upd = upd.Remove(expression.Name(col.Name()))
-			}
-		case mut.SETNULL:
-			if i == 0 {
-				upd = expression.Set(expression.Name(col.Name()), expression.Value(types.AttributeValueMemberNULL{Value: true}))
-			} else {
-				upd = upd.Set(expression.Name(col.Name()), expression.Value(types.AttributeValueMemberNULL{Value: true}))
-			}
-		}
-
-		switch col.Array {
-
-		// array identifes dynamodb List types such as attributes  "Nd", "XF", "Id", "XBl", "L*":
-		// default behaviour is to append value to end of array
+		switch col.IsArray() {
 
 		case true:
 
-			switch col.GetOperation() {
-			case mut.SET:
+			if col.GetModifier().Exists(mut.NumberSet) || col.GetModifier().Exists(mut.StringSet) || col.GetModifier().Exists(mut.BinarySet) {
+				// Oper: SET, ADD, SUBTRACT
+				switch col.GetOperation() {
+				case mut.SET:
+					fmt.Println("======== SET array ============")
+					if i == 0 {
+						// on the rare occuassion some mutations want to set the array e.g. XF parameter when creating overflow blocks
+						upd = expression.Set(expression.Name(col.Name()), expression.Value(col.Value()))
+					} else {
+						upd = upd.Set(expression.Name(col.Name()), expression.Value(col.Value()))
+					}
+				case mut.ADD:
+					fmt.Println("======== ADD  to Set ============")
+					if i == 0 {
+						upd = expression.Add(expression.Name(col.Name()), expression.Value(col.Value()))
+					} else {
+						upd = upd.Add(expression.Name(col.Name()), expression.Value(col.Value()))
+					}
 
-				if i == 0 {
-					// on the rare occuassion some mutations want to set the array e.g. XF parameter when creating overflow blocks
-					upd = expression.Set(expression.Name(col.Name()), expression.Value(col.Value()))
-				} else {
-					upd = upd.Set(expression.Name(col.Name()), expression.Value(col.Value()))
+				case mut.SUBTRACT, mut.DELETE:
+					fmt.Println("======== Delete/Subtract Set element  ============")
+					if i == 0 {
+						upd = expression.Delete(expression.Name(col.Name()), expression.Value(col.Value()))
+					} else {
+						upd = upd.Delete(expression.Name(col.Name()), expression.Value(col.Value()))
+					}
+
+				default:
+					panic(fmt.Errorf("is Array no operation defined"))
 				}
 
-			case mut.APPEND:
+			} else {
+				// LIST - Oper: SET, APPEND, PREPEND
 
-				// note ListAppend only suitable for List types. Also, being an Update the attribute must exist to use ListAppend
-				//    if it doesn't exist use ListAppend(if_not_exists(col.Name(),<emptyArray>)), col.Value)
-				if i == 0 {
-					upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()), expression.Value(col.Value())))
-					//	upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()).IfNotExists(expression.Value(5)), expression.Value(col.Value())))
-				} else {
-					upd = upd.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()), expression.Value(col.Value())))
+				switch col.GetOperation() {
+				case mut.SET:
+					fmt.Println("======== SET array ============")
+					if i == 0 {
+						// on the rare occuassion some mutations want to set the array e.g. XF parameter when creating overflow blocks
+						upd = expression.Set(expression.Name(col.Name()), expression.Value(col.Value()))
+					} else {
+						upd = upd.Set(expression.Name(col.Name()), expression.Value(col.Value()))
+					}
+
+				case mut.APPEND:
+
+					// note ListAppend only suitable for List types. Also, being an Update the attribute must exist to use ListAppend
+					//    if it doesn't exist use ListAppend(if_not_exists(col.Name(),<emptyArray>)), col.Value)
+					if i == 0 {
+						upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()), expression.Value(col.Value())))
+						//	upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()).IfNotExists(expression.Value(5)), expression.Value(col.Value())))
+					} else {
+						upd = upd.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()), expression.Value(col.Value())))
+					}
+
+				case mut.PREPEND:
+
+					if i == 0 {
+						upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Value(col.Value()), expression.Name(col.Name())))
+					} else {
+						upd = upd.Set(expression.Name(col.Name()), expression.ListAppend(expression.Value(col.Value()), expression.Name(col.Name())))
+					}
 				}
-
-			case mut.PREPEND:
-
-				if i == 0 {
-					upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Value(col.Value()), expression.Name(col.Name())))
-					//	upd = expression.Set(expression.Name(col.Name()), expression.ListAppend(expression.Name(col.Name()).IfNotExists(expression.Value(5)), expression.Value(col.Value())))
-				} else {
-					upd = upd.Set(expression.Name(col.Name()), expression.ListAppend(expression.Value(col.Value()), expression.Name(col.Name())))
-				}
-
 			}
 
 		case false:
+
+			switch col.GetOperation() {
+			// TODO: implement Add (as opposed to inc which is "Add 1")
+			case mut.ADD:
+				if i == 0 {
+					upd = expression.Set(expression.Name(col.Name()), expression.Name(col.Name()).Plus(expression.Value(col.Value())))
+				} else {
+					upd = upd.Set(expression.Name(col.Name()), expression.Name(col.Name()).Plus(expression.Value(col.Value())))
+				}
+			case mut.SUBTRACT:
+				if i == 0 {
+					upd = expression.Set(expression.Name(col.Name()), expression.Name(col.Name()).Minus(expression.Value(col.Value())))
+				} else {
+					upd = upd.Set(expression.Name(col.Name()), expression.Name(col.Name()).Minus(expression.Value(col.Value())))
+				}
+			// case mut.MULTIPLY: // MULTIPLY is not supported
+			// 	if i == 0 {
+			// 		upd = expression.Set(expression.Name(col.Name()), expression.Name(col.Name()).Multiply(expression.Value(col.Value())))
+			// 	} else {
+			// 		upd = upd.Set(expression.Name(col.Name()), expression.Name(col.Name()).Multiply(expression.Value(col.Value())))
+			// 	}
+			case mut.REMOVE:
+				if i == 0 {
+					upd = expression.Remove(expression.Name(col.Name()))
+				} else {
+					upd = upd.Remove(expression.Name(col.Name()))
+				}
+			case mut.SETNULL:
+				if i == 0 {
+					upd = expression.Set(expression.Name(col.Name()), expression.Value(types.AttributeValueMemberNULL{Value: true}))
+				} else {
+					upd = upd.Set(expression.Name(col.Name()), expression.Value(types.AttributeValueMemberNULL{Value: true}))
+				}
+			}
 
 			if col.GetOperation() != mut.SET {
 				// already processed (see above)
@@ -472,12 +595,31 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 	exprValues := expr.Values()
 	exprUpdate := expr.Update()
 
-	fmt.Printf("exprNames1; %#v\n", exprNames)
-	fmt.Printf("exprValues1; %#v\n", exprValues)
-	fmt.Printf("exprUpdate1; %#v\n", *exprUpdate)
-	if exprCond != nil {
-		fmt.Printf("exprCond1; %#v\n", *exprCond)
+	for _, v := range m.GetMutateMembers() {
+		if v.IsArray() {
+			if v.GetModifier().Exists(mut.NumberSet) {
+				// convert from Expression default of List (for array of Numbers) to NS
+				exprValues = convertList2NS(v.Name(), exprUpdate, exprNames, exprValues)
+				continue
+			}
+			if v.GetModifier().Exists(mut.StringSet) {
+				// convert from Expression default of List (for array of Strings) to SS
+				exprValues = convertList2SS(v.Name(), exprUpdate, exprNames, exprValues)
+				continue
+			}
+			if !v.GetModifier().Exists(mut.BinarySet) {
+				//if list required, convert from Expression default for Binary array of BS
+				exprValues = convertBS2List(v.Name(), exprUpdate, exprNames, exprValues)
+			}
+		}
 	}
+	//exprValues = convertBS2List(exprValues)
+	// fmt.Printf("exprNames1; %#v\n", exprNames)
+	// fmt.Printf("exprValues1; %#v\n", exprValues)
+	// fmt.Printf("exprUpdate1; %#v\n", *exprUpdate)
+	// if exprCond != nil {
+	// 	fmt.Printf("exprCond1; %#v\n", *exprCond)
+	// }
 
 	if len(*exprUpdate) == 0 {
 		return nil, fmt.Errorf("Mutation does not define any update operations")
@@ -487,6 +629,7 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var update *types.Update
 
 	// Where expression defined
@@ -502,19 +645,19 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
 		ii := len(exprValues)
 		for i, v := range m.GetValues() {
-			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(m, v)
+			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(m, "", v)
 		}
 
-		fmt.Printf("exprNames2; %#v\n", exprNames)
-		fmt.Printf("exprValues2; %#v\n", exprValues)
-		fmt.Printf("exprUpdate2; %#v\n", *exprUpdate)
-		fmt.Printf("binds: %d %d\n", binds, len(m.GetValues()))
-		fmt.Printf("exprCond2; %#v\n", *exprCond)
+		// fmt.Printf("exprNames2; %#v\n", exprNames)
+		// fmt.Printf("exprValues2; %#v\n", exprValues)
+		// fmt.Printf("exprUpdate2; %#v\n", *exprUpdate)
+		// fmt.Printf("binds: %d %d\n", binds, len(m.GetValues()))
+		// fmt.Printf("exprCond2; %#v\n", *exprCond)
 
 		update = &types.Update{
 			Key:                       av,
 			ExpressionAttributeNames:  exprNames,
-			ExpressionAttributeValues: convertBS2List(exprValues, exprNames),
+			ExpressionAttributeValues: exprValues,
 			UpdateExpression:          exprUpdate,
 			ConditionExpression:       exprCond,
 			TableName:                 aws.String(m.GetTable()),
@@ -526,7 +669,7 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 			update = &types.Update{
 				Key:                       av,
 				ExpressionAttributeNames:  exprNames,
-				ExpressionAttributeValues: convertBS2List(exprValues, exprNames),
+				ExpressionAttributeValues: exprValues,
 				UpdateExpression:          exprUpdate,
 				ConditionExpression:       exprCond,
 				TableName:                 aws.String(m.GetTable()),
@@ -535,7 +678,7 @@ func txUpdate(m *mut.Mutation) (*types.TransactWriteItem, error) {
 			update = &types.Update{
 				Key:                       av,
 				ExpressionAttributeNames:  exprNames,
-				ExpressionAttributeValues: convertBS2List(exprValues, exprNames),
+				ExpressionAttributeValues: exprValues,
 				UpdateExpression:          exprUpdate,
 				TableName:                 aws.String(m.GetTable()),
 			}
@@ -560,6 +703,7 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 	exprNames := make(map[string]string)
 	exprValues := make(map[string]types.AttributeValue)
 
+	fmt.Println("txPut..................")
 	if m.GetSubmit() != nil {
 
 		// this will create binary sets for binary slices.
@@ -584,6 +728,27 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 		return nil, err
 	}
 
+	fmt.Printf("txPut len(av) %d \n", len(av))
+	for k, x := range av {
+		fmt.Printf("txPut %s  ", k)
+		switch vv := x.(type) {
+		case *types.AttributeValueMemberS:
+			fmt.Printf(" S av %s %#v\n", k, (*vv).Value)
+		case *types.AttributeValueMemberNS:
+			fmt.Printf("NS av %s %#v\n", k, (*vv).Value)
+		case *types.AttributeValueMemberN:
+			fmt.Printf("N av %s %#v\n", k, (*vv).Value)
+		case *types.AttributeValueMemberBS:
+			for _, v := range (*vv).Value {
+				fmt.Printf(" BS  %s %#v\n", k, v)
+			}
+		case *types.AttributeValueMemberL:
+			for _, v := range (*vv).Value {
+				fmt.Printf(" List %s %#v\n", k, v)
+			}
+		}
+	}
+
 	// Where expression defined
 	if len(m.GetWhere()) > 0 {
 
@@ -595,7 +760,7 @@ func txPut(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
 		ii := len(exprValues)
 		for i, v := range m.GetValues() {
-			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(m, v)
+			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(m, "", v)
 		}
 
 		if len(exprNames) == 0 {
@@ -766,7 +931,7 @@ func txDelete(m *mut.Mutation) (*types.TransactWriteItem, error) {
 
 		ii := len(exprValues)
 		for i, v := range m.GetValues() {
-			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(m, v)
+			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(m, "", v)
 		}
 
 	} else {
@@ -1512,11 +1677,6 @@ func execTransaction(ctx context.Context, client *dynamodb.Client, bs []*mut.Mut
 						return err
 					}
 					y.SetMembers(attrs)
-
-					// err := marshalAttributes(y)
-					// if err != nil {
-					// 	return err
-					// }
 				}
 
 				txwis, err := crTx(y, y.GetOpr())
@@ -1813,7 +1973,7 @@ func genKeyAV(q *query.QueryHandle) (map[string]types.AttributeValue, error) {
 	// generate key AV
 	for _, v := range q.GetAttr() {
 		if v.IsKey() {
-			av[v.Name()] = marshalAvUsingValue(nil, v.Value())
+			av[v.Name()] = marshalAvUsingValue(nil, v.Name(), v.Value())
 			if err != nil {
 				return nil, err
 			}
@@ -2242,7 +2402,7 @@ func exQueryStd(ctx context.Context, client *DynamodbHandle, q *query.QueryHandl
 
 		ii := 1 // values in keys
 		for i, v := range q.GetValues() {
-			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(nil, v)
+			exprValues[":"+strconv.Itoa(i+ii)] = marshalAvUsingValue(nil, "", v)
 		}
 
 		// append expression Names and Values
