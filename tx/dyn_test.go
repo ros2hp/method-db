@@ -181,7 +181,7 @@ func TestDynSelectSlice(t *testing.T) {
 	}
 }
 
-func TestDynMergeMutation1(t *testing.T) {
+func TestDynMergeMutationUpdate(t *testing.T) {
 
 	pkey := 10001
 	sortk := "U#P#v"
@@ -249,11 +249,19 @@ func TestDynMergeMutation1(t *testing.T) {
 
 }
 
-func TestDynMergeMutation2a(t *testing.T) {
+func TestDynMergeMutationBinarySet(t *testing.T) {
 
 	pkey := 20001
 	sortk := "U#P#v"
 
+	utx := NewBatch("DynMergeMutation3a")
+	for i := 0; i < 10; i++ {
+		utx.NewDelete(gtbl).Key("PKey", pkey+i).Key("SortK", sortk)
+	}
+	err = utx.Execute()
+	if err != nil {
+		t.Errorf("Error: in Execute of MergeMutation3a %s", err)
+	}
 	var mutop = mut.Insert
 	var keys []key.Key
 	ctx := context.Background()
@@ -295,10 +303,13 @@ func TestDynMergeMutation2a(t *testing.T) {
 
 		asz := m.GetMemberValue("ASZ").(int)
 		xf_ := m.GetMemberValue("XF").([]int64)
+		nd_ := m.GetMemberValue("Nd").([][]byte)
+		cuid := make([][]byte, 1)
+		cuid[0] = nd_[len(nd_)-1]
 		if 4 == asz {
 			// update XF in UID-Pred (in parent node block) to overflow batch limit reached.
 			xf_[len(xf_)-1] = 99
-			cTx.MergeMutation(gtbl, mut.Update, keys).AddMember("XF", xf_, mut.ADD)
+			cTx.MergeMutation(gtbl, mut.Update, keys).AddMember("XF", xf_, mut.ADD).Attribute("Nd", cuid, mut.SUBTRACT).AddMember("ASZ", 1, mut.SUBTRACT)
 		}
 
 	}
@@ -312,6 +323,94 @@ func TestDynMergeMutation2a(t *testing.T) {
 	if err != nil {
 		//cTx.Dump() // serialise cTx to mysql dump table
 		t.Errorf("Error in MergeMutation execute : %s ", err)
+	}
+
+	type qr struct {
+		PKey  int
+		SortK string
+		ASZ   int
+		N     int
+		Nd    [][]byte
+		XF    []int64
+	}
+	var qrv qr
+
+	qt := NewQuery("label", gtbl)
+	qt.Select(&qrv).Key("PKey", pkey+5).Key("SortK", sortk)
+	err = qt.Execute()
+	if err != nil {
+		t.Errorf("Error inTestDynMergeMutation3a Query : %s ", err)
+	}
+	if qrv.ASZ != 3 {
+		t.Errorf("Expected ASX of 43got %d", qrv.ASZ)
+	}
+	if len(qrv.Nd) != 3 {
+		t.Errorf("Expected Nd of 3 got %d", len(qrv.Nd))
+	}
+	if len(qrv.XF) != 8 {
+		t.Errorf("Expected XF of 8 got %d. Must not be a List", len(qrv.XF))
+	}
+	if qrv.XF[3] != 99 {
+		t.Errorf("Expected XF[0] of 99 got %d", qrv.XF[0])
+	}
+	if qrv.XF[len(qrv.XF)-1] != 99 {
+		t.Errorf("Expected XF[0] of 99 got %d", qrv.XF[0])
+	}
+
+	t.Logf("XF: %#v", qrv.XF)
+
+}
+
+func TestDynBinarySetUpdateSubtract(t *testing.T) {
+
+	pkey := 20001
+	sortk := "U#P#v"
+
+	type qr struct {
+		PKey  int
+		SortK string
+		ASZ   int
+		N     int
+		Nd    [][]byte
+		XF    []int64
+	}
+
+	for i := 0; i < 10; i++ {
+		var qrv qr
+		qt := NewQuery("label", gtbl)
+		qt.Select(&qrv).Key("PKey", pkey+i).Key("SortK", sortk)
+		err = qt.Execute()
+
+		// as mutations are configured to use Insert (Put) - batch can be used. Issue - no transaction control. Cannot be used with merge stmt
+		cTx := NewContext(context.Background(), "AttachEdges")
+
+		cuid := make([][]byte, 1)
+		cuid[0] = qrv.Nd[len(qrv.Nd)-1]
+		// cTx.NewUpdate(gtbl).Key("PKey", pkey+i).Key("SortK", sortk).Attribute("Nd", cuid, mut.BinarySet, mut.DELETE).AddMember("ASZ", 1, mut.SUBTRACT) // works
+		// cTx.NewUpdate(gtbl).Key("PKey", pkey+i).Key("SortK", sortk).Attribute("Nd", cuid, mut.DELETE).AddMember("ASZ", 1, mut.SUBTRACT) // Wrong - need to include mut.BinarySet
+		cTx.NewUpdate(gtbl).Key("PKey", pkey+i).Key("SortK", sortk).Attribute("Nd", cuid, mut.BinarySet, mut.SUBTRACT).AddMember("ASZ", 1, mut.SUBTRACT)
+
+		// err = cTx.Execute()
+		err = cTx.Commit()
+		if err != nil {
+			//cTx.Dump() // serialise cTx to mysql dump table
+			t.Errorf("Error in MergeMutation execute : %s ", err)
+		}
+	}
+
+	var qrv qr
+
+	qt := NewQuery("label", gtbl)
+	qt.Select(&qrv).Key("PKey", pkey+5).Key("SortK", sortk)
+	err = qt.Execute()
+	if err != nil {
+		t.Errorf("Error inTestDynMergeMutation3a Query : %s ", err)
+	}
+	if qrv.ASZ != 2 {
+		t.Errorf("Expected ASX of 2 got %d", qrv.ASZ)
+	}
+	if len(qrv.Nd) != 2 {
+		t.Errorf("Expected Nd of 2 got %d", len(qrv.Nd))
 	}
 
 }
@@ -382,7 +481,6 @@ func TestDynMergeMutation2b(t *testing.T) {
 		//cTx.Dump() // serialise cTx to mysql dump table
 		t.Errorf("Error in MergeMutation execute : %s ", err)
 	}
-
 }
 
 // MergeMutationListCreated (default for methodb)
